@@ -1,7 +1,7 @@
 Hunchensocket - WebSockets for Hunchentoot
 ==========================================
 Hunchensocket is a Common Lisp implementation of [WebSocket]s realized
-as an extension to Edi Weitz' [edi] excellent [Hunchentoot] web server.
+as an extension to [Edi Weitz'] [edi] excellent [Hunchentoot] web server.
 
 As [WebSocket]s are still in draft state and security concerns have been
 [raised](http://www.ietf.org/mail-archive/web/hybi/current/msg04744.html) against older
@@ -18,7 +18,7 @@ Hunchensocket is supported by and available through [asdf-install] and
 
 Support
 -------
-Currently, only [draft-hybi-00](draft-ietf-hybi-thewebsocketprotocol-00) aka
+Currently, only [draft-ietf-hybi-thewebsocketprotocol-00] [draft-hybi-00] aka
 draft-hixie-thewebsocketprotocol-76 as implemented in [Chromium] versions 6 to
 13 and [Firefox] 4.0 to 5.0 (disabled, must be enabled explicitly) are available
 but newer drafts and the future standard are to come as new web browser versions
