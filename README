@@ -1,10 +1,10 @@
 Hunchensocket - WebSockets for Hunchentoot
 ==========================================
 Hunchensocket is a Common Lisp implementation of [WebSocket]s realized
-as an extension to (Edi Weitz')[edi] excellent [Hunchentoot] web server.
+as an extension to Edi Weitz' [edi] excellent [Hunchentoot] web server.
 
 As [WebSocket]s are still in draft state and security concerns have been
-(raised)[http://www.ietf.org/mail-archive/web/hybi/current/msg04744.html] against older
+[raised](http://www.ietf.org/mail-archive/web/hybi/current/msg04744.html) against older
 (but supported) draft versions of the protocol implemented in a number of
 browsers, it should not be used productively (yet), unless of course you know
 what you're doing.
@@ -18,27 +18,27 @@ Hunchensocket is supported by and available through [asdf-install] and
 
 Support
 -------
-Currently, only (draft-ietf-hybi-thewebsocketprotocol-00)[draft-hybi-00] aka
+Currently, only [draft-hybi-00](draft-ietf-hybi-thewebsocketprotocol-00) aka
 draft-hixie-thewebsocketprotocol-76 as implemented in [Chromium] versions 6 to
 13 and [Firefox] 4.0 to 5.0 (disabled, must be enabled explicitly) are available
 but newer drafts and the future standard are to come as new web browser versions
 supporting them emerge. For a more complete matrix including proprietary
 browsers, please consider the WebSocket
-(Wikipedia article)[http://en.wikipedia.org/wiki/WebSocket#Browser_support].
+[Wikipedia article](http://en.wikipedia.org/wiki/WebSocket#Browser_support).
 
 
 Usage
 -----
 Hunchensocket is meant to be used as a Hunchentoot extension. In order to be
 able to establish and send and receive on WebSockets, Follow the regular
-Hunchentoot (documentation)[http://www.weitz.de/hunchentoot/#start] but exchange
+Hunchentoot [documentation](http://www.weitz.de/hunchentoot/#start) but exchange
 the regular `HUNCHENTOOT:ACCEPTOR` and `HUNCHENTOOT:SSL-ACCEPTOR` with
 `HUNCHENSOCKET:WEBSOCKET-ACCEPTOR` and `HUNCHENSOCKET:WEBSOCKET-SSL-ACCEPTOR`,
 respectively. 
 
 In order to make use of WebSocket connections, one must define WebSocket
 handlers that decide whether to accept a WebSocket request and, if they do,
-return a cascading closure of function as follows:
+return a cascading closure of function as follows:  
 ```λ request -> λ stream mutex -> λ message```  
 Or, in other words, a (dispatcher) function that takes a Hunchentoot request
 object and, if it accepts the request, returns a (handshake handler) function
@@ -74,17 +74,17 @@ Hacking:  <http://github.com/e-user/hunchensocket>
 
 Copyright
 ---------
-Copyright (C) 2011  Alexander Kahl <e-user@fsfe.org>
-This file is part of Hunchensocket.
-Hunchensocket is free software; you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+Copyright (C) 2011  Alexander Kahl <e-user@fsfe.org>  
+This file is part of Hunchensocket.  
+Hunchensocket is free software; you can redistribute it and/or modify  
+it under the terms of the GNU Affero General Public License as published by  
+the Free Software Foundation; either version 3 of the License, or  
+(at your option) any later version.  
 
-Hunchensocket is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+Hunchensocket is distributed in the hope that it will be useful,  
+but WITHOUT ANY WARRANTY; without even the implied warranty of  
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  
+GNU General Public License for more details.  
 
-You should have received a copy of the GNU Affero General Public License
+You should have received a copy of the GNU Affero General Public License  
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
