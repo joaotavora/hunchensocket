@@ -42,11 +42,11 @@ return a cascading closure of function as follows:
 ```λ request -> λ stream mutex -> λ message```  
 Or, in other words, a (dispatcher) function that takes a Hunchentoot request
 object and, if it accepts the request, returns a (handshake handler) function
-which is not obliged to perform additional obligatory steps but can be used to
-perform initial set-up stuff but finally has to evaluate to a final (message
-handler) function that will be called upon socket input and has access to the
-both lexically enclosed and dynamically available websocket stream and mutex
-objects in order to send data through the socket.
+which can (optionally) be used to perform initial set-up stuff and finally has
+to evaluate to a final (message handler) function that will be called upon
+socket input and has access to the both lexically enclosed and dynamically
+available websocket stream and mutex objects in order to send data through the
+socket.
 
 Unless you have very special plans for using WebSockets, esp. in case all you
 want is to exploit their possibilities for your web project, you are adviced to
