@@ -1,4 +1,4 @@
-;;;; Hunchensocket - hunchensocket.asd Hunchensocket ASDF definition file
+;;;; Hunchensocket - hunchensocket-test.asd Hunchensocket tests ASDF definition file
 ;;;; Copyright (C) 2011  Alexander Kahl <e-user@fsfe.org>
 ;;;; This file is part of Hunchensocket.
 ;;;; Hunchensocket is free software; you can redistribute it and/or modify it
@@ -16,20 +16,18 @@
 
 (in-package :cl-user)
 
-(defpackage :hunchensocket-system
+(defpackage :hunchensocket-system-test
   (:use :cl :asdf))
 
-(in-package :hunchensocket-system)
+(in-package :hunchensocket-system-test)
 
-(defsystem :hunchensocket
-  :description "WebSockets for Hunchentoot"
+(defsystem :hunchensocket-test
+  :description "WebSockets for Hunchentoot - Tests"
   :author "Alexander Kahl <e-user@fsfe.org>"
   :license "AGPLv3+"
-  :depends-on (:alexandria :ironclad :flexi-streams :chunga :trivial-utf-8
-                           :trivial-backtrace :bordeaux-threads)
+  :depends-on (:hunchensocket :hu.dwim.stefil)
   :components
-  ((:module "server"
+  ((:module "test"
             :serial t
             :components
-            ((:file "package")
-             (:file "websocket")))))
+            ((:file "websocket")))))

@@ -102,15 +102,21 @@ part of the challenge. An error will be signalled in case the key is spurious."
           (error 'socket.io-websocket-illegal-key :initarg key)
           (integer-octets-32be (/ number spaces)))))) ; crack-smoking mac pussies at google want big endian
 
+(defun read-bytes-array (stream number)
+  "read-bytes-array stream number => unsigned byte array
+
+Read NUMBER bytes from Chunga STREAM into array and return it."
+  (let ((result (make-array number :element-type '(unsigned-byte 8))))
+    (dotimes (index number result)
+      (setf (aref result index)
+            (char-int (read-char* stream t))))))
+
 (defun read-key3 (request)
   "read-key3 request => unsigned byte array
 
 Read eight bytes from REQUEST's content stream and return them as a byte
 array."
-  (let ((key (make-array 8 :element-type '(unsigned-byte 8))))
-    (dotimes (index 8 key)
-      (setf (aref key index)
-            (char-int (read-char* (content-stream request) t))))))
+  (read-bytes-array (content-stream request) 8))
 
 (defun digest-key (key)
   "digest-key key => unsigned byte array
