@@ -99,7 +99,7 @@ part of the challenge. An error will be signalled in case the key is spurious."
           (spaces (length (regex-replace-all space-scanner key ""))))
       (if (or (zerop spaces)
               (not (zerop (mod number spaces))))
-          (error 'socket.io-websocket-illegal-key :initarg key)
+          (error 'websocket-illegal-key :initarg key)
           (integer-octets-32be (/ number spaces)))))) ; crack-smoking mac pussies at google want big endian
 
 (defun read-bytes-array (stream number)
