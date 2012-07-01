@@ -35,7 +35,7 @@
 (defsystem :hunchensocket
   :description "WebSockets for Hunchentoot"
   :author "Alexander Kahl <e-user@fsfe.org>"
-  :license "AGPLv3+"
+  :license "MIT"
   :depends-on (:hunchentoot :alexandria :ironclad :flexi-streams :chunga :trivial-utf-8
                :trivial-backtrace :bordeaux-threads)
   :components

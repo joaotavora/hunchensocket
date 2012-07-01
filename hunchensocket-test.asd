@@ -35,7 +35,7 @@
 (defsystem :hunchensocket-test
   :description "WebSockets for Hunchentoot - Tests"
   :author "Alexander Kahl <e-user@fsfe.org>"
-  :license "AGPLv3+"
+  :license "MIT"
   :depends-on (:hunchensocket :hu.dwim.stefil)
   :components
   ((:module "test"
