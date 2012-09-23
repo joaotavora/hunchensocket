@@ -100,7 +100,7 @@ obsoleted) old \"hixie\" and early \"hybi\" WebSocket drafts."
 
 (let ((digit-scanner (create-scanner "[^\\d]"))
       (space-scanner (create-scanner "[^ ]")))
-  (defun websocket-keyhash (key)
+  (defun websocket-keyhasha (key)
     "websocket-keyhash key => unsigned byte array
 
 Process a (legacy) WebSocket key and evaluate to a byte sequence that becomes
@@ -161,6 +161,23 @@ headers, if successful. The challenge is sent over the raw TCP socket."
                                                                         (ssl-p (request-acceptor request))))
           (header-out :sec-websocket-protocol reply) (header-in :sec-websocket-protocol request))))
 
+(defun handle-handshake (request reply)
+  "handle-handshake for v13
+
+Also sets the
+Sec-WebSocket-Origin, Sec-WebSocket-Location and Sec-WebSocket-Protocol response
+headers, if successful. The challenge is sent over the raw TCP socket."
+  (prog1
+    (let ((sec-websocket-key+magic
+            (concatenate 'string (header-in :sec-websocket-key request) "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")))
+    (setf (header-out :sec-websocket-accept reply)
+      (base64:usb8-array-to-base64-string
+        (ironclad:digest-sequence 'ironclad:sha1 (ironclad:ascii-string-to-byte-array sec-websocket-key+magic))))
+    (setf (header-out :sec-websocket-origin reply) (header-in :origin request)
+          (header-out :sec-websocket-location reply) (or (websocket-uri request (header-in :host request)
+                                                                        (ssl-p (request-acceptor request))))
+          (header-out :sec-websocket-protocol reply) (header-in :sec-websocket-protocol request)))))
+
 (defun websocket-handle-handshake (request reply)
   "websocket-handle-handshake request reply => handshake
 
@@ -168,18 +185,18 @@ Try to determine the WebSocket handshake version by checking REQUEST headers and
 handle accordingly, if possible."
   (handler-case
       (prog1
-          (cond ((header-in :sec-websocket-version request) ; >= draft-hybi-04 FIXME
-                 (error 'websocket-unsupported-version (header-in :sec-websocket-version request)))
-                ((header-in :sec-websocket-draft request) ; (and (>= draft-hybi-02) (<= draft-hybi-03)) FIXME
+          (cond ((not (equal "13" (header-in* :sec-websocket-version request)))
+                 (error 'websocket-unsupported-version :version (header-in* :sec-websocket-version request)));; (header-in :sec-websocket-version request)))
+                ((header-in :sec-websocket-draft request)
                  (error 'websocket-unsupported-version (header-in :sec-websocket-draft request)))
-                ((and (header-in :sec-websocket-key1 request) ; < draft-hybi-02
-                      (header-in :sec-websocket-key2 request))
-                 (handle-handshake-legacy request reply))
-                (t (error 'websocket-unsupported-version :unknown)))
-        (setf (return-code* reply) +http-switching-protocols+
-              (header-out :upgrade reply) "WebSocket"
-              (header-out :connection reply) "Upgrade"
-              (content-type* reply) "application/octet-stream"))
+                ((header-in :sec-websocket-key request)
+                 (handle-handshake request reply))
+                (t (error 'websocket-unsupported-version :version "unknown")))
+        (setf
+          (return-code* reply) +http-switching-protocols+
+          (header-out :upgrade reply) "WebSocket"
+          (header-out :connection reply) "Upgrade"
+          (content-type* reply) "application/octet-stream"))
     (websocket-illegal-key (condition)
       (hunchentoot-error "Illegal key ~a encountered" (websocket-illegal-key-of condition)))
     (websocket-unsupported-version ()
@@ -198,7 +215,7 @@ Send the magic WebSocket termination sequence across STREAM."
 
 Encode MESSAGE as UTF-8 bytes and send it across STREAM in a proper frame."
   (when (> (length message) 0) ; empty message would send terminator
-    (log-message :debug "Going to send websocket message ~a" message)
+    (log-message* :debug "Going to send websocket message ~a" message)
     (with-lock-held (mutex)
       (write-byte #x00 stream)
       (write-utf-8-bytes message stream)
@@ -245,20 +262,18 @@ expect from the name."
 
 Continue the process with *WEBSOCKET-SOCKET* bound to the original TCP socket
 and *HUNCHENTOOT-VERSION* enhanced by the Hunchensocket version."
-  (let ((*websocket-socket* socket)
-        (hunchentoot-asd:*hunchentoot-version* (format nil "~a Hunchensocket 0" hunchentoot-asd:*hunchentoot-version*)))
+  (let ((*websocket-socket* socket))
+       ; (hunchentoot-asd:*hunchentoot-version* (format nil "~a Hunchensocket 0" hunchentoot-asd:*hunchentoot-version*)))
     (call-next-method)))
-
+  
 (defmethod process-connection ((*acceptor* websocket-acceptor) (socket t))
   "process-connection websocket-acceptor t => context
 
 Enclose the connection processing with a general error handler w/logging."
-  (handler-case
-      (call-next-method)
-    (error (condition)
-      (log-message :error "WebSocket connection terminated unexpectedly: ~a" condition)
-      (log-message :debug "~@[~%~a~]"
-                   (print-backtrace condition :output nil)))))
+ ; (handler-case
+      (call-next-method))
+   ; (error (condition)
+   ;   (log-message* :error "WebSocket connection terminated unexpectedly: ~a" condition))))
 
 (defmethod process-request :around ((request websocket-request))
   "process-request :around websocket-request => context / side effect / stream
@@ -269,8 +284,8 @@ regular processing, hijack the connection and continue to process it as a
 WebSocket one.
 
 PS: I *do* know what I'm doing, Mister!"
-  (let ((*approved-return-codes* (cons +http-switching-protocols+
-                                       *approved-return-codes*)))
+  ;(let ((*approved-return-codes* (cons +http-switching-protocols+
+  ;                                     *approved-return-codes*)))
     (let ((stream (call-next-method)))
       (prog1 stream
         (when (= +http-switching-protocols+ (return-code*))
@@ -283,10 +298,10 @@ PS: I *do* know what I'm doing, Mister!"
                 (websocket-process-connection stream
                                               (funcall (websocket-request-handler request) stream *websocket-stream-mutex*))) ; custom handshake
             (end-of-file ()
-              (log-message :debug "WebSocket connection terminated"))
+              (log-message* :debug "WebSocket connection terminated"))
             (websocket-illegal-frame-type (condition)
-              (log-message :error "WebSocket illegal frame type 0x~x encountered, terminating"
-                           (websocket-illegal-frame-type-of condition)))))))))
+              (log-message* :error "WebSocket illegal frame type 0x~x encountered, terminating"
+                           (websocket-illegal-frame-type-of condition))))))));)
 
 (defun dispatch-websocket-handlers (request)
   "dispatch-websocket-handlers request => handler
@@ -294,6 +309,7 @@ PS: I *do* know what I'm doing, Mister!"
 Try to dispatch REQUEST against the available *WEBSOCKET-HANDLERS*, evaluating
 to the first match which should be a `λ stream mutex -> λ message' handshake /
 message handler closure (please consult the README)."
+  (print "dispatch-websocket-handlers")
   (some #'(lambda (handler)
             (funcall handler request))
         *websocket-handlers*))
@@ -304,7 +320,7 @@ message handler closure (please consult the README)."
 WebSocket junction. Try to continue as a WebSocket connection if the Upgrade and
 WebSocket request headers were issued and a suitable WebSocket handler could be
 found."
-  (if (and (string= "upgrade" (string-downcase (header-in* :connection)))
+  (if (and (search "upgrade" (string-downcase (header-in* :connection)))
            (string= "websocket" (string-downcase (header-in* :upgrade))))
       (if-let ((handler (dispatch-websocket-handlers *request*)))
         (prog1 (websocket-handle-handshake *request* *reply*)

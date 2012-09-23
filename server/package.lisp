@@ -37,6 +37,7 @@
   (:import-from :ironclad :digest-sequence)
   (:import-from :chunga :read-char*)
   (:import-from :trivial-backtrace :print-backtrace)
+  (:import-from :hunchentoot :log-message*)
   (:export :websocket-acceptor
            :websocket-ssl-acceptor
            :websocket-handle-handshake
