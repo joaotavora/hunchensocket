@@ -74,18 +74,6 @@
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
   (:documentation "Special WebSocket SSL acceptor"))
 
-(define-condition websocket-unsupported-version (condition)
-  ((version :initarg :version :reader websocket-unsupported-version-of
-            :initform (required-argument :version)
-            :documentation "Original version argument that is unsupported"))
-  (:documentation "Signal for unsupported / unrecognized WebSocket versions"))
-
-(define-condition websocket-illegal-key (condition)
-  ((key :initarg :key :reader websocket-illegal-key-of
-        :initform (required-argument :key)
-        :documentation "Original, spurious key argument"))
-  (:documentation "Signalled if client sends erroneous handshake key"))
-
 (define-condition websocket-illegal-frame-type (condition)
   ((type :initarg :type :reader websocket-illegal-frame-type-of
          :initform (required-argument :type)
@@ -137,8 +125,8 @@ array."
   (dotimes (num number)
     (read-byte stream)))
 
-(defun websocket-process-connection (stream message-handler
-                                     &optional (version :rfc-6455))
+(defun websocket-loop (stream message-handler
+                       &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
 versions. Framing is handled automatically, MESSAGE-HANDLER ought to
 handle the actual payloads.
@@ -194,11 +182,12 @@ be read and written to and MUTEX shouldn't be there."
 ;;; Hook onto normal hunchentoot processing
 ;;;
 ;;; The `:around' specilization of `process-request' will first call
-;;; the main hunchentoot one, which will call our
-;;; `handle-request'. That will in turn try to figure out if the
-;;; client is requesting websockets, handshake and set
-;;; `+http-switching-protocols+'. It will also eventually reply to the
-;;; client, but hopefully keep the stream alive. That happens if:
+;;; the main hunchentoot one, which eventually call our specialization
+;;; of `acceptor-dispatch-request'. That will in turn try to figure
+;;; out if the client is requesting websockets, handshake and set
+;;; `+http-switching-protocols+'. Hunchentoot's `process-request' will
+;;; also eventually reply to the client but in the stream is kept
+;;; alive. That happens if:
 ;;;
 ;;; 1. There are suitable "Connection" and "Upgrade" headers and
 ;;;    `websocket-resource' object is found for request.
@@ -208,32 +197,20 @@ be read and written to and MUTEX shouldn't be there."
 ;;; fail, an error is signalled. 
 
 (defmethod process-request :around ((request websocket-request))
-  "First, continue the process with HTTP 101 added to Hunchentoot's
-list of *APPROVED-RETURN-CODES*. If that status code got issued in the
-response after regular processing, hijack the connection and continue
-to process it as a WebSocket one.
-
-PS: I *do* know what I'm doing, Mister!"
+  "Process REQUEST as HTTP, then hijack connection if WebSocket."
   (let ((stream (call-next-method)))
     (prog1 stream
       (when (= +http-switching-protocols+ (return-code*))
         (force-output stream)
-        (let ((timeout (websocket-timeout (request-acceptor request))))
-          (set-timeouts *websocket-socket* timeout timeout))
-        (handler-case
-            (let ((*websocket-stream* stream)
-                  (*websocket-stream-mutex* (make-lock)))
-              (websocket-process-connection
-               stream
-               (funcall (websocket-resource request) stream
-                        *websocket-stream-mutex*)))
-                                        ; custom handshake
-          (end-of-file ()
-            (log-message* :debug "WebSocket connection terminated"))
-          (websocket-illegal-frame-type (condition)
-            (log-message*
-             :error "WebSocket illegal frame type 0x~x encountered, terminating"
-             (websocket-illegal-frame-type-of condition))))))))
+        (let ((timeout (websocket-timeout (request-acceptor request)))
+              (*websocket-stream* stream)
+              (*websocket-stream-mutex* (make-lock)))
+          (set-timeouts *websocket-socket* timeout timeout)
+          (catch 'websocket-disconnect
+            (handler-bind ((error #'(lambda (e)
+                                      (maybe-invoke-debugger e)
+                                      (throw 'websocket-disconnect nil))))
+              (websocket-loop stream (websocket-resource request)))))))))
 
 (defun websocket-handle-handshake (request reply)
   "Analyse REQUEST for WebSocket handshake.
@@ -269,11 +246,8 @@ non-locally with an error instead. "
                    (content-type* reply) "application/octet-stream")))
           (t (hunchentoot-error "Unsupported unknown websocket version")))))
 
-(defmethod handle-request ((*acceptor* websocket-acceptor)
-                           (*request* websocket-request))
-  "WebSocket junction. Try to continue as a WebSocket connection if
-the Upgrade and WebSocket request headers were issued and a suitable
-WebSocket handler could be found."
+(defmethod acceptor-dispatch-request ((acceptor websocket-acceptor)
+                                      (request websocket-request))
   (cond ((and (search "upgrade" (string-downcase (header-in* :connection)))
               (string= "websocket" (string-downcase (header-in* :upgrade)))
               (setf (websocket-resource *request*)
