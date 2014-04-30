@@ -46,22 +46,10 @@
 (defvar *websocket-socket* nil
   "The currently active WebSocket socket")
 
-(defparameter *websocket-dispatchers* nil
+
+;;; API
+(defvar *websocket-dispatch-table* nil
   "List of handler closures that will be queried for new connections")
-
-(defclass websocket-request (request)
-  ((handler :accessor websocket-resource
-            :initform nil
-            :documentation "Message handler of the current request")))
-
-(defclass websocket-reply (reply) ())
-
-
-(defmethod initialize-instance :after ((reply websocket-reply) &rest initargs)
-  "Set the reply's external format to Unix EOL / UTF-8 explicitly."
-  (declare (ignore initargs))
-  (setf (reply-external-format reply)
-        (make-external-format :utf8 :eol-style :lf)))
 
 (defclass websocket-acceptor (acceptor)
   ((websocket-timeout :initarg :websocket-timeout
@@ -74,11 +62,74 @@
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
   (:documentation "Special WebSocket SSL acceptor"))
 
+(defclass websocket-client ()
+  ((stream     :initarg :stream
+               :initform (error "Must make clients with streas"))
+   (request    :initarg :request
+               :reader client-request
+               :initform (error "Must make clients with requests"))
+   (write-lock :initform (make-lock))))
+
+(defclass websocket-resource ()
+  ((clients :initform nil :reader clients)
+   (client-class :initarg :client-class :initform 'websocket-client)
+   (lock :initform (make-lock))))
+
+(defgeneric message-received (resource message client))
+(defgeneric binary-received (resource binary client))
+
+
+;;; Requests, replies and websocket-specific conditions
+;;; 
+(defclass websocket-request (request)
+  ((handler :accessor websocket-resource
+            :initform nil
+            :documentation "Message handler of the current request")))
+
+(defclass websocket-reply (reply) ())
+
+(defmethod initialize-instance :after ((reply websocket-reply) &rest initargs)
+  "Set the reply's external format to Unix EOL / UTF-8 explicitly."
+  (declare (ignore initargs))
+  (setf (reply-external-format reply)
+        (make-external-format :utf8 :eol-style :lf)))
+
 (define-condition websocket-illegal-frame-type (condition)
   ((type :initarg :type :reader websocket-illegal-frame-type-of
          :initform (required-argument :type)
          :documentation "Spurious frame type received"))
   (:documentation "Signal if client sends spurious frame type"))
+
+
+;;; client and resource machinery
+;;;
+(defmethod initialize-instance :after ((resource websocket-resource) &key client-class)
+  (assert (subtypep client-class 'websocket-client)))
+
+(defun call-with-new-client-for-resource (client resource fn)
+  (with-slots (clients lock) resource
+    (unwind-protect
+           (progn
+             (bt:with-lock-held (lock)
+               (push client clients))
+             (funcall fn))
+        (bt:with-lock-held (lock)
+          (setq clients (remove client clients))))))
+
+(defmacro with-new-client-for-resource ((client-sym) (resource stream request)
+                                        &body body)
+  (alexandria:once-only (resource)
+    `(let ((,client-sym (make-instance (slot-value ,resource 'client-class)
+                                       :stream ,stream
+                                       :request ,request)))
+       (call-with-new-client-for-resource ,client-sym
+                                          ,resource
+                                          #'(lambda () ,@body)))))
+
+
+
+;;; Binary reading machinery
+;;;
 
 (defun read-bytes-array (stream number)
   "Read NUMBER bytes from Chunga STREAM into array and return it."
@@ -100,83 +151,34 @@ array."
   "Form WebSocket URL (ws:// or wss://) URL."
   (format nil "~:[ws~;wss~]://~a~a" ssl host (script-name request)))
 
-(defun websocket-send-term (&optional
-                              (stream *websocket-stream*)
-                              (mutex *websocket-stream-mutex*))
-  "Send the magic WebSocket termination sequence across STREAM."
-  (with-lock-held (mutex)
-    (write-sequence +websocket-terminator+ stream)
-    (force-output stream)))
-
-(defun websocket-send-message (message &optional
-                                         (stream *websocket-stream*)
-                                         (mutex *websocket-stream-mutex*))
-  "Encode MESSAGE as UTF-8 bytes and send it across STREAM in a proper frame."
-  (when (> (length message) 0) ; empty message would send terminator
-    (log-message* :debug "Going to send websocket message ~a" message)
-    (with-lock-held (mutex)
-      (write-byte #x00 stream)
-      (write-utf-8-bytes message stream)
-      (write-byte #xff stream)
-      (force-output stream))))
-
 (defun skip-bytes (stream number)
   "Read and discard NUMBER bytes from STREAM."
   (dotimes (num number)
     (read-byte stream)))
 
-(defun websocket-loop (stream message-handler
+(defun send-message (message client)
+  "Encode MESSAGE as UTF-8 bytes and send it across STREAM in a proper frame."
+  (with-slots (stream lock) client
+    (when (> (length message) 0) ; empty message would send terminator
+      (log-message* :debug "Going to send websocket message ~a" message)
+      (with-lock-held (lock)
+        (write-byte #x00 stream)
+        (write-utf-8-bytes message stream)
+        (write-byte #xff stream)
+        (force-output stream)))))
+
+
+;;; Main websocket loop
+;;; 
+(defun websocket-loop (stream client
                        &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
-versions. Framing is handled automatically, MESSAGE-HANDLER ought to
-handle the actual payloads.
-
-*Not really a REPL because it doesn't print implicitly but it does
-what you'd expect from the name."
+versions. Framing is handled automatically, CLIENT handles the actual
+payloads."
+  (declare (ignore stream client))
   (ecase version
-    ((:draft-hixie-76 :draft-hybi-00)
-     (loop for type = (read-byte stream)
-           do (cond
-                ((= #x00 type)
-                 (loop with reader = (make-in-memory-output-stream)
-                       for byte = (read-byte stream)
-                       until (= byte #xff)
-                       do (write-byte byte reader)
-                       finally (return
-                                 (funcall message-handler
-                                          (utf-8-bytes-to-string
-                                           (get-output-stream-sequence
-                                            reader))))))
-                ((= #xff type)
-                 (let ((data (read-byte stream)))
-                   (if (= #x00 data)
-                       (return) ; regular termination
-                       (do* ((data data (read-byte stream))
-                             (length (logand #x7f data)
-                                     (+ (* 128 length) (logand #x7f data))))
-                            ((= #x80 (logand #x80 data))
-                             (skip-bytes stream length))))))
-                (t (error 'websocket-illegal-frame-type ; irregular termination
-                          :type type)))))
     (:rfc-6455
      (hunchentoot-error "Not implemented yet!"))))
-
-(defmethod process-connection :around ((*acceptor* websocket-acceptor)
-                                       (socket t))
-  "Continue the process with *WEBSOCKET-SOCKET* bound to the original
-TCP socket and *HUNCHENTOOT-VERSION* enhanced by the Hunchensocket
-version."
-  (let ((*websocket-socket* socket))
-    (call-next-method)))
-
-(defun find-websocket-resource (request)
-  "Compute a suitable handler for REQUEST.
-
-A handler is a function of two arguments STREAM and MUTEX. STREAM can
-be read and written to and MUTEX shouldn't be there."
-  (some #'(lambda (handler)
-            (funcall handler request))
-        *websocket-dispatchers*))
 
 
 ;;; Hook onto normal hunchentoot processing
@@ -194,23 +196,30 @@ be read and written to and MUTEX shouldn't be there."
 ;;; 2. The websocket handshake completes sucessfully
 ;;; 
 ;;; If 1 fails, normal hunchentoot processing is resumed. If 2 or 3
-;;; fail, an error is signalled. 
+;;; fail, an error is signalled.
+
+(defmethod process-connection :around ((*acceptor* websocket-acceptor)
+                                       (socket t))
+  "Sprinkle the current connection with dynamic bindings."
+  (let ((*websocket-socket* socket))
+    (call-next-method)))
 
 (defmethod process-request :around ((request websocket-request))
-  "Process REQUEST as HTTP, then hijack connection if WebSocket."
-  (let ((stream (call-next-method)))
-    (prog1 stream
-      (when (= +http-switching-protocols+ (return-code*))
-        (force-output stream)
-        (let ((timeout (websocket-timeout (request-acceptor request)))
-              (*websocket-stream* stream)
-              (*websocket-stream-mutex* (make-lock)))
+  "First process REQUEST as HTTP, maybe hijack into WebSocket loop."
+  (call-next-method)
+  (let ((stream (content-stream request)))
+    (when (= +http-switching-protocols+ (return-code*))
+      (force-output stream)
+      (let* ((timeout (websocket-timeout (request-acceptor request)))
+             (resource (websocket-resource request)))
+        (with-new-client-for-resource (client) (resource stream request)
           (set-timeouts *websocket-socket* timeout timeout)
-          (catch 'websocket-disconnect
+          (catch 'websocket-done
             (handler-bind ((error #'(lambda (e)
                                       (maybe-invoke-debugger e)
-                                      (throw 'websocket-disconnect nil))))
-              (websocket-loop stream (websocket-resource request)))))))))
+                                      (log-message* :error "Websocket error: ~a" e)
+                                      (throw 'websocket-done nil))))
+              (websocket-loop stream client))))))))
 
 (defun websocket-handle-handshake (request reply)
   "Analyse REQUEST for WebSocket handshake.
@@ -246,8 +255,15 @@ non-locally with an error instead. "
                    (content-type* reply) "application/octet-stream")))
           (t (hunchentoot-error "Unsupported unknown websocket version")))))
 
+(defun find-websocket-resource (request)
+  "Find the resource for REQUEST by looking up *WEBSOCKET-DISPATCH-TABLE*."
+  (some #'(lambda (dispatcher)
+            (funcall dispatcher request))
+        *websocket-dispatch-table*))
+
 (defmethod acceptor-dispatch-request ((acceptor websocket-acceptor)
                                       (request websocket-request))
+  "Attempt WebSocket connection, else fall back to HTTP"
   (cond ((and (search "upgrade" (string-downcase (header-in* :connection)))
               (string= "websocket" (string-downcase (header-in* :upgrade)))
               (setf (websocket-resource *request*)
@@ -257,6 +273,18 @@ non-locally with an error instead. "
          )
         (t
          (call-next-method))))
+
+
+;;; Chat example
+;;;
+(defclass websocket-chat-resource (websocket-resource)
+  ())
+
+(defmethod message-received ((resource websocket-chat-resource) message client)
+  (loop for client in (remove client (clients resource))
+        do (send-message client (format nil "~a, meow" message))))
+
+
 
 ;; Local Variables:
 ;; coding: utf-8-unix
