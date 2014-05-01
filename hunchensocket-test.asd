@@ -11,7 +11,4 @@
   :license "MIT"
   :depends-on (:hunchensocket :hu.dwim.stefil)
   :components
-  ((:module "test"
-            :serial t
-            :components
-            ((:file "websocket")))))
+  ((:file "websocket-tests")))
