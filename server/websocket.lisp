@@ -96,77 +96,143 @@
                                           ,resource
                                           #'(lambda () ,@body)))))
 
-
-
-;;; Binary reading machinery
-;;;
-
-(defun read-bytes-array (stream number)
-  "Read NUMBER bytes from Chunga STREAM into array and return it."
-  (let ((result (make-array number :element-type '(unsigned-byte 8))))
-    (dotimes (index number result)
-      (setf (aref result index)
-            (char-int (read-char* stream t))))))
-
-(defun read-key3 (request)
-  "Read eight bytes from REQUEST's content stream and return them as a byte
-array."
-  (read-bytes-array (content-stream request) 8))
-
-(defun digest-key (key)
-  "Evaluates to MD5 digest of KEY sequence."
-  (digest-sequence :md5 key))
-
 (defun websocket-uri (request host &optional ssl)
   "Form WebSocket URL (ws:// or wss://) URL."
   (format nil "~:[ws~;wss~]://~a~a" ssl host (script-name request)))
 
-(defun skip-bytes (stream number)
-  "Read and discard NUMBER bytes from STREAM."
-  (dotimes (num number)
-    (read-byte stream)))
+
+;;; Binary reading/writing machinery
+;;;
+(defconstant +continuation-frame+    #x0)
+(defconstant +text-frame+            #x1)
+(defconstant +binary-frame+          #x2)
+;; (defconstant +non-control-frames+   '(#x3 . #x7))
+(defconstant +connection-close+      #x8)
+(defconstant +ping+                  #x9)
+(defconstant +pong+                  #xA)
+;; (defconstant +control-frames+       '(#xB . #xF))
 
-(defun send-message (message client)
-  "Encode MESSAGE as UTF-8 bytes and send it across STREAM in a proper frame."
-  (with-slots (stream lock) client
-    (when (> (length message) 0) ; empty message would send terminator
-      (log-message* :debug "Going to send websocket message ~a" message)
-      (with-lock-held (lock)
-        (write-byte #x00 stream)
-        (write-utf-8-bytes message stream)
-        (write-byte #xff stream)
-        (force-output stream)))))
+(defun read-unsigned-big-endian (stream n)
+  "Read N bytes from stream and return the big-endian number"
+  (loop repeat n for i from 0
+        sum (* (read-byte stream) (expt 256 i))))
+
+(defun read-n-bytes-into-sequence (stream n)
+  "Return an array of N bytes read from stream"
+  (let* ((array (make-array n :element-type '(unsigned-byte 8)))
+         (read (read-sequence array stream)))
+    (assert (= read n) nil
+            "Expected to read ~a bytes, but read ~a" n read)
+    array))
+
+(defun read-frame (stream)
+  "Read a text or binary message from STREAM.
+
+Will exit non-locally by throwing `websocket-done' if client wants to
+disconnect."
+  (let* ((first-byte       (read-byte stream))
+         (fin              (ldb (byte 1 7) first-byte))
+         (extensions       (ldb (byte 3 4) first-byte))
+         (opcode           (ldb (byte 4 0) first-byte))
+         (second-byte      (read-byte stream))
+         (mask-p           (plusp (ldb(byte 1 7) second-byte)))
+         (payload-length   (ldb (byte 7 0) second-byte))
+         (payload-length   (cond ((<= 0 payload-length 125)
+                                  payload-length)
+                                 (t
+                                  (read-unsigned-big-endian
+                                   stream (case payload-length
+                                            (126 2)
+                                            (127 8))))))
+         (masking-key      (if mask-p (read-n-bytes-into-sequence stream 4)))
+         (extension-data   nil)
+         (application-data (read-n-bytes-into-sequence stream payload-length)))
+    (declare (ignore extension-data fin))
+    (when (plusp extensions) (error "No extensions negotiated, but
+                                  client sends ~a!"  extensions))
+    (when masking-key
+      ;; RFC6455 Masking
+      ;;
+      ;; Octet i of the transformed data
+      ;; ("transformed-octet-i") is the XOR of octet i
+      ;; of the original data ("original-octet-i")
+      ;; with octet at index i modulo 4 of the masking
+      ;; key ("masking-key-octet-j"):
+      (loop for i from 0 below payload-length
+            do (setf (aref application-data i)
+                     (logxor (aref application-data i)
+                             (aref masking-key
+                                   (mod i 4))))))
+    (list opcode application-data)))
+
+(defun write-frame (stream opcode &optional data)
+  (let* ((first-byte     #x00)
+         (second-byte    #x00)
+         (len            (if data (length data) 0))
+         (payload-length (cond ((< len 125)         len)
+                               ((< len (expt 2 16)) 126)
+                               (t                   127)))
+         (mask-p         nil))
+    (setf (ldb (byte 1 7) first-byte)  1
+          (ldb (byte 3 4) first-byte)  0
+          (ldb (byte 4 0) first-byte)  opcode
+          (ldb (byte 1 7) second-byte) (if mask-p 1 0) 
+          (ldb (byte 7 0) second-byte) payload-length)
+    (write-byte first-byte stream)
+    (write-byte second-byte stream)
+    (loop repeat (cond ((= payload-length 126) 2)
+                       ((= payload-length 127) 8)
+                       (t                      0))
+          for out = len then (ash out -8)
+          do (write-byte (logand out #xff) stream))
+    ;; (if mask-p
+    ;;     (error "sending masked messages not implemented yet"))
+    (if data (write-sequence data stream))
+    (force-output stream)))
 
 
-;;; Main websocket loop
+;;; State machine and main websocket loop
 ;;; 
-(defun websocket-loop (stream client
+(defun handle-frame (opcode data stream resource client)
+  (declare (ignore resource client))
+  (cond ((= opcode +text-frame+)
+         (write-frame stream opcode data))))
+
+(defun websocket-loop (resource stream client
                        &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
 versions. Framing is handled automatically, CLIENT handles the actual
 payloads."
-  (declare (ignore stream client))
   (ecase version
     (:rfc-6455
-     (hunchentoot-error "Not implemented yet!"))))
+     (handler-bind ((error #'(lambda (e)
+                               (declare (ignore e))
+                               (write-frame stream +connection-close+))))
+       (loop for state = :open then (handle-frame opcode data stream resource client)
+             while (not (eq :closed state))
+             for (opcode data) = (read-frame stream))))))
 
 
 ;;; Hook onto normal hunchentoot processing
 ;;;
-;;; The `:around' specilization of `process-request' will first call
-;;; the main hunchentoot one, which eventually call our specialization
-;;; of `acceptor-dispatch-request'. That will in turn try to figure
-;;; out if the client is requesting websockets, handshake and set
-;;; `+http-switching-protocols+'. Hunchentoot's `process-request' will
-;;; also eventually reply to the client but in the stream is kept
-;;; alive. That happens if:
+;;; The `:after' specilization of `process-request' will happen after
+;;; the main Hunchentoot one. It is hunchentoot which eventually calls
+;;; our specialization of `acceptor-dispatch-request', who will, in
+;;; turn, try to figure out if the client is requesting
+;;; websockets. Hunchentoot's `process-request' will also eventually
+;;; reply to the client. In the `:after' specialization we might enter
+;;; into `websocket-loop' and thus keep the socket alive. That happens
+;;; if:
 ;;;
 ;;; 1. There are suitable "Connection" and "Upgrade" headers and
 ;;;    `websocket-resource' object is found for request.
-;;; 2. The websocket handshake completes sucessfully
+;;;
+;;; 2. The websocket handshake completes sucessfully, whereby the
+;;;    callees of `acceptor-dispatch-request' will have set
+;;;    `+http-switching-protocols+' accordingly.
 ;;; 
-;;; If 1 fails, normal hunchentoot processing is resumed. If 2 or 3
-;;; fail, an error is signalled.
+;;; If any of these steps fail, errors might be signalled, but normal
+;;; hunchentoot processing of the HTTP request still happens.
 
 (defmethod process-connection :around ((*acceptor* websocket-acceptor)
                                        (socket t))
@@ -174,9 +240,8 @@ payloads."
   (let ((*websocket-socket* socket))
     (call-next-method)))
 
-(defmethod process-request :around ((request websocket-request))
-  "First process REQUEST as HTTP, maybe hijack into WebSocket loop."
-  (call-next-method)
+(defmethod process-request :after ((request websocket-request))
+  "After HTTP processing REQUEST, maybe hijack into WebSocket loop."
   (let ((stream (content-stream request)))
     (when (= +http-switching-protocols+ (return-code*))
       (force-output stream)
@@ -189,7 +254,7 @@ payloads."
                                       (maybe-invoke-debugger e)
                                       (log-message* :error "Websocket error: ~a" e)
                                       (throw 'websocket-done nil))))
-              (websocket-loop stream client))))))))
+              (websocket-loop resource stream client))))))))
 
 (defun websocket-handle-handshake (request reply)
   "Analyse REQUEST for WebSocket handshake.
