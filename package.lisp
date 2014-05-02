@@ -26,7 +26,9 @@
    #:websocket-client
    #:message-received
    #:binary-received
-   #:client-request))
+   #:client-request
+   #:send-message
+   #:clients))
 
 
 

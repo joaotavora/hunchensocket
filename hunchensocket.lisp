@@ -34,7 +34,7 @@
 
 (defclass websocket-client ()
   ((stream     :initarg :stream
-               :initform (error "Must make clients with streas"))
+               :initform (error "Must make clients with streams"))
    (request    :initarg :request
                :reader client-request
                :initform (error "Must make clients with requests"))
@@ -47,10 +47,16 @@
 
 (defgeneric message-received (resource message client))
 (defgeneric binary-received (resource binary client))
+(defun send-message (client message)
+  "MESSAGE is a string"
+  (with-slots (write-lock stream) client
+    (with-lock-held (write-lock)
+      (write-frame stream +text-frame+
+                   (flexi-streams:string-to-octets message :external-format :utf-8)))))
 
 
 ;;; Requests, replies and websocket-specific conditions
-;;; 
+;;;
 (defclass websocket-request (request)
   ((handler :accessor websocket-resource
             :initform nil
@@ -147,9 +153,10 @@ disconnect."
          (masking-key      (if mask-p (read-n-bytes-into-sequence stream 4)))
          (extension-data   nil)
          (application-data (read-n-bytes-into-sequence stream payload-length)))
-    (declare (ignore extension-data fin))
-    (when (plusp extensions) (error "No extensions negotiated, but
-                                  client sends ~a!"  extensions))
+    (declare (ignore extension-data))
+    (when (plusp extensions)
+      (hunchentoot-error
+       "No extensions negotiated, but client sends ~a!"  extensions))
     (when masking-key
       ;; RFC6455 Masking
       ;;
@@ -163,7 +170,7 @@ disconnect."
                      (logxor (aref application-data i)
                              (aref masking-key
                                    (mod i 4))))))
-    (list opcode application-data)))
+    (list opcode application-data (plusp fin))))
 
 (defun write-frame (stream opcode &optional data)
   (let* ((first-byte     #x00)
@@ -176,7 +183,7 @@ disconnect."
     (setf (ldb (byte 1 7) first-byte)  1
           (ldb (byte 3 4) first-byte)  0
           (ldb (byte 4 0) first-byte)  opcode
-          (ldb (byte 1 7) second-byte) (if mask-p 1 0) 
+          (ldb (byte 1 7) second-byte) (if mask-p 1 0)
           (ldb (byte 7 0) second-byte) payload-length)
     (write-byte first-byte stream)
     (write-byte second-byte stream)
@@ -192,11 +199,70 @@ disconnect."
 
 
 ;;; State machine and main websocket loop
-;;; 
-(defun handle-frame (opcode data stream resource client)
-  (declare (ignore resource client))
-  (cond ((= opcode +text-frame+)
-         (write-frame stream opcode data))))
+;;;
+(defun handle-frame (stream resource client state pending-fragments frame-info)
+  (destructuring-bind (opcode data fin-p)
+      frame-info
+    (flet ((control-frame-p ()
+             (plusp (logand #x8 opcode))))
+      (cond
+        ((eq :awaiting-close state)
+         (unless (eq opcode +connection-close+)
+           (hunchentoot-error
+            "Expected connection close from client, got 0x~x" opcode))
+         (setq state :closed))
+        ((and (not fin-p)
+              pending-fragments)
+         ;; this is a non-FIN fragment and there are pending fragments. Check
+         ;; opcode, append to client's fragments.
+         (unless (= opcode +continuation-frame+)
+           (hunchentoot-error
+            "Frames with the FIN bit clean must have opcode 0x~x"
+            +continuation-frame+))
+         (push data pending-fragments))
+        ((not fin-p)
+         ;; this is a non-FIN fragment and there are no pending fragments. Start
+         ;; a new sequence. Ensure not a control frame.
+         (when (control-frame-p)
+           (hunchentoot-error
+            "Client sent a fragmented control frame"))
+         (push frame-info pending-fragments))
+        ((and pending-fragments
+              (not (or (control-frame-p)
+                       (= opcode +continuation-frame+))))
+         ;; this is a FIN fragment and (1) there are pending fragments and (2)
+         ;; this isn't a control or continuation frame. Error out.
+         (hunchentoot-error
+          "Only control frames can interleave fragment sequences."))
+        (t
+         ;; This is a fin fragment. If there are pending fragments and this is a
+         ;; continuation frame, join the fragments and keep on processing. Join
+         ;; any outstanding fragments and process the message.
+         (when (and pending-fragments
+                    (eq opcode +continuation-frame+))
+           (let ((in-order (reverse
+                            (cons frame-info
+                                  pending-fragments))))
+             (setf data
+                   (apply #'concatenate 'array
+                          (mapcar #'second in-order)))
+             (setf pending-fragments nil)
+             (setf opcode (first (first in-order)))))
+         (cond ((eq +text-frame+ opcode)
+                (message-received resource (flexi-streams:octets-to-string
+                                            data :external-format :utf-8)
+                                  client))
+               ((eq +binary-frame+ opcode)
+                (message-received resource data client))
+               ((eq +ping+ opcode)
+                (write-frame stream +pong+))
+               ((eq +connection-close+ opcode)
+                (write-frame stream +connection-close+)
+                (setq state :closed))
+               (t
+                (hunchentoot-error "Client sent unknown opcode ~a" opcode)))))))
+  (list state pending-fragments))
+
 
 (defun websocket-loop (resource stream client
                        &optional (version :rfc-6455))
@@ -208,9 +274,15 @@ payloads."
      (handler-bind ((error #'(lambda (e)
                                (declare (ignore e))
                                (write-frame stream +connection-close+))))
-       (loop for state = :open then (handle-frame opcode data stream resource client)
-             while (not (eq :closed state))
-             for (opcode data) = (read-frame stream))))))
+       (loop for (state pending-fragments)
+               = (handle-frame
+                  stream
+                  resource
+                  client
+                  state
+                  pending-fragments
+                  (read-frame stream))
+             while (not (eq :closed state)))))))
 
 
 ;;; Hook onto normal hunchentoot processing
@@ -230,7 +302,7 @@ payloads."
 ;;; 2. The websocket handshake completes sucessfully, whereby the
 ;;;    callees of `acceptor-dispatch-request' will have set
 ;;;    `+http-switching-protocols+' accordingly.
-;;; 
+;;;
 ;;; If any of these steps fail, errors might be signalled, but normal
 ;;; hunchentoot processing of the HTTP request still happens.
 
@@ -256,11 +328,12 @@ payloads."
                                       (throw 'websocket-done nil))))
               (websocket-loop resource stream client))))))))
 
-(defun websocket-handle-handshake (request reply)
+(defmethod websocket-handle-handshake ((acceptor websocket-acceptor) request reply)
   "Analyse REQUEST for WebSocket handshake.
 
 Destructively modify REPLY accordingly in case of success, exit
-non-locally with an error instead. "
+non-locally with an error instead."
+  ;; Implements 4.2.2.  Sending the Server's Opening Handshake
   (let ((requested-version (header-in* :sec-websocket-version request)))
     (cond ((not (equal "13" requested-version))
            (hunchentoot-error
@@ -283,7 +356,12 @@ non-locally with an error instead. "
                    (or (websocket-uri request (header-in :host request)
                                       (ssl-p (request-acceptor request)))))
              (setf (header-out :sec-websocket-protocol reply)
-                   (header-in :sec-websocket-protocol request))
+                   (first (split-sequence:split-sequence
+                           #\, (header-in :sec-websocket-protocol request))))
+             ;; A (possibly empty) list representing the
+             ;; protocol-level extensions the server is ready to use.
+             ;;
+             (setf (header-out :sec-websocket-extensions reply) nil)
              (setf (return-code* reply) +http-switching-protocols+
                    (header-out :upgrade reply) "WebSocket"
                    (header-out :connection reply) "Upgrade"
@@ -303,21 +381,11 @@ non-locally with an error instead. "
               (string= "websocket" (string-downcase (header-in* :upgrade)))
               (setf (websocket-resource *request*)
                     (find-websocket-resource *request*)))
-         (websocket-handle-handshake *request* *reply*)
+         (websocket-handle-handshake acceptor *request* *reply*)
          (values nil nil nil) ;; as per `handle-request''s contract.
          )
         (t
          (call-next-method))))
-
-
-;;; Chat example
-;;;
-(defclass websocket-chat-resource (websocket-resource)
-  ())
-
-(defmethod message-received ((resource websocket-chat-resource) message client)
-  (loop for client in (remove client (clients resource))
-        do (send-message client (format nil "~a, meow" message))))
 
 
 
