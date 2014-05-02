@@ -356,8 +356,7 @@ non-locally with an error instead."
                    (or (websocket-uri request (header-in :host request)
                                       (ssl-p (request-acceptor request)))))
              (setf (header-out :sec-websocket-protocol reply)
-                   (first (split-sequence:split-sequence
-                           #\, (header-in :sec-websocket-protocol request))))
+                   (first (split "\\s*,\\s*" (header-in :sec-websocket-protocol request))))
              ;; A (possibly empty) list representing the
              ;; protocol-level extensions the server is ready to use.
              ;;
@@ -365,7 +364,17 @@ non-locally with an error instead."
              (setf (return-code* reply) +http-switching-protocols+
                    (header-out :upgrade reply) "WebSocket"
                    (header-out :connection reply) "Upgrade"
-                   (content-type* reply) "application/octet-stream")))
+                   (content-type* reply) "application/octet-stream")
+             ;; HACK! but a decent one I think. Notice that we set both
+             ;; in and out "Connection" headers to "Upgrade". The out
+             ;; header is per RFC, but the in-header is for a different
+             ;; reason. If the client additionally send "Keep-Alive" in
+             ;; that header, hunchentoot will eventually take it as a
+             ;; reason to clobber our out-header value of "Upgrade" with
+             ;; "Keep-Alive <timeout>".
+             (setf (cdr (find :connection (headers-in request) :key #'car))
+                   "Upgrade")))
+          
           (t (hunchentoot-error "Unsupported unknown websocket version")))))
 
 (defun find-websocket-resource (request)
@@ -377,16 +386,35 @@ non-locally with an error instead."
 (defmethod acceptor-dispatch-request ((acceptor websocket-acceptor)
                                       (request websocket-request))
   "Attempt WebSocket connection, else fall back to HTTP"
-  (cond ((and (search "upgrade" (string-downcase (header-in* :connection)))
+  (cond ((and (member "upgrade" (split "\\s*,\\s*" (header-in* :connection))
+                      :test #'string-equal)
               (string= "websocket" (string-downcase (header-in* :upgrade)))
               (setf (websocket-resource *request*)
                     (find-websocket-resource *request*)))
          (websocket-handle-handshake acceptor *request* *reply*)
-         (values nil nil nil) ;; as per `handle-request''s contract.
-         )
+         ;; HACK! the empty string is also important because if there's no
+         ;; content Hunchentoot will declare the connection closed and set
+         ;; "Connection: Closed". But there can't be any actual content since
+         ;; otherwise it will piggyback onto the first websocket frame, which is
+         ;; interpreted as invalid by the client. It's also forbidden by the
+         ;; HTTP RFC2616:
+         ;;
+         ;;    All 1xx (informational), 204 (no content), and 304 (not modified)
+         ;;    responses MUST NOT include a message-body.
+         ;;
+         ;; There is a slight non-conformance here. This trick makes Hunchentoot
+         ;; send "Content-length: 0". Most browsers don't seem to care, but
+         ;; RFC2616 kind of implies that is forbidden, since it says the
+         ;;
+         ;;   the presence of a message-body is signaled by the inclusion of a
+         ;;   Content-Length or Transfer-Encoding header field in the requests's
+         ;;   message-headers
+         ;;
+         ;; However, we're sending a response, not a request.
+         ;;
+         (values "" nil nil))
         (t
          (call-next-method))))
-
 
 
 ;; Local Variables:
