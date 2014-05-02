@@ -5,8 +5,14 @@ Hunchensocket is a Common Lisp implementation of [WebSocket]s realized
 as an extension to [Edi Weitz'] [edi] excellent [Hunchentoot] web
 server.
 
-Note also that this is a not-yet-sanctioned fork of the original
-library by Alexander Kahl. See the COPYING for license details file.
+Hunchensocket goal is to support a (mostly) compliant [RFC6455][RFC6455]
+server.
+
+Note also that **this is a not-yet-sanctioned fork of the original
+library by Alexander Kahl**, which lives [here][kahl], but doesn't
+support the actual RFC, only drafts of the protocol.
+
+See the [COPYING][copying] for license details file.
 
 Installation
 ------------
@@ -21,60 +27,86 @@ $ git clone https://github.com/capitaomorte/hunchensocket.git
 
 then `(ql:quickload :hunchensocket)` in your REPL.
 
-Support
--------
+A chat server in 32 lines
+-------------------------
 
-Hunchensocket implements an mostly compliant [RFC6455][RFC6455]
-server.
-
-Usage
------
-
-Hunchensocket is meant to be used as a Hunchentoot extension. To
-establish WebSockets, follow the regular Hunchentoot
-[documentation](http://www.weitz.de/hunchentoot/#start) but exchange
-the acceptor classes by Hunchensocket versions.
-
-Then, a websocket-specific API is available to process messages,
-inspired both by [clws][clws]'s and [Hunchentoot's][Hunchentoot].
-
-Here's a simple chat server:
+First define classes for rooms and users. Make these subclasses of
+`websocket-resource` and `websocket-client`.
 
 ```lisp
 (defpackage :my-chat (:use :cl))
 (in-package :my-chat)
 
-(defvar *chat-rooms* nil)
-
 (defclass chat-room (hunchensocket:websocket-resource)
-  ((name :initarg :name :initform (error "Name this room!") :reader name)))
+  ((name :initarg :name :initform (error "Name this room!") :reader name))
+  (:default-initargs :client-class 'user))
 
-(defmethod initialize-instance :after ((room chat-room) &key)
-  (push room *chat-rooms*))
+(defclass user (hunchensocket:websocket-client)
+  ((name :initarg :user-agent :reader name :initform (error "Name this user!"))))
+```
 
-(defun find-chat-room (request)
-  ;; returning NIL will make Hunchentoot reply with a 404
-  (let ((name (hunchentoot:script-name request)))
-    (or (find name *chat-rooms* :test #'string= :key #'name)
-        (and (< (length *chat-rooms*) 5)
-             (make-instance 'chat-room :name name)))))
+Define a list of rooms. Notice that
+`hunchensocket:*websocket-dispatch-table*` works just like
+`hunchentoot:*dispatch-table*`, but for websocket specific resources.
 
-(pushnew 'find-chat-room hunchensocket:*websocket-dispatch-table*)
+```lisp
+(defvar *chat-rooms* (list (make-instance 'chat-room :name "/bongo")
+                           (make-instance 'chat-room :name "/fury")))
 
-(defmethod hunchensocket:message-received ((resource chat-room) message client)
-  (loop for peer in (hunchensocket:clients resource)
-        do (hunchensocket:send-message peer (format nil
-                                                    "~a says ~a"
-                                                    peer message))))
+(defun find-create-chat-room (request)
+  (find (hunchentoot:script-name request) *chat-rooms* :test #'string= :key #'name))
 
+(pushnew 'find-create-chat-room hunchensocket:*websocket-dispatch-table*)
+```
+
+OK, now a helper function and the dynamics of a chat room.
+
+```lisp
+(defun broadcast (room message &rest args)
+  (loop for peer in (hunchensocket:clients room)
+        do (hunchensocket:send-message peer (apply #'format nil message args))))
+
+(defmethod hunchensocket:client-connected ((room chat-room) user)
+  (broadcast room "~a has joined ~a" (name user) (name room)))
+
+(defmethod hunchensocket:client-disconnected ((room chat-room) user)
+  (broadcast room "~a has left ~a" (name user) (name room)))
+
+(defmethod hunchensocket:message-received ((room chat-room) user message)
+  (broadcast room "~a says ~a" (name user) message))  
+```
+
+Finally, start the server. `hunchensocket:websocket-acceptor` works
+just like `hunchentoot:acceptor`, and you can probably also use
+`hunchensocket:websocket-ssl-acceptor`.
+
+
+```lisp
 (defvar *server* (make-instance 'hunchensocket:websocket-acceptor :port 12345))
-
 (hunchentoot:start *server*)
 ```
 
+Now open two browser windows on http://www.websocket.org/echo.html,
+enter `ws://localhost:12345` as the host and play around chatting with
+yourself.
+
+Design
+------
+
+Main sources of inspiration:
+
+* Original implementation by Alexander Kahl, which cleverly hijacks
+  the Hunchentoot connection after the HTTP response and keeps the
+  connection alive, just like in a Head request.
+* [clws][clws]'s API because it explicitly defines websocket "resources"
+* [Hunchentoot's][Hunchentoot]'s API because it uses CLOS
+
+
 [WebSocket]: http://en.wikipedia.org/wiki/WebSocket  
 [edi]: http://weitz.de/
+[kahl]: https://github.com/e-user/hunchensocket
 [RFC6455]: https://tools.ietf.org/html/rfc6455
 [clws]: https://github.com/3b/clws
+[copying]: https://github.com/capitaomorte/hunchensocket/blob/master/COPYING
 [Hunchentoot]: http://weitz.de/hunchentoot/
 [Quicklisp]: http://www.quicklisp.org/  

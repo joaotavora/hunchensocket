@@ -1,18 +1,10 @@
 (in-package :hunchensocket)
 
-(define-constant +websocket-terminator+
-    '(#x00 #xff)
-  :test #'equal
-  :documentation "Fixed WebSocket terminator value")
 (define-constant +websocket-magic-key+
   "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   :test #'string=
   :documentation "Fixed magic WebSocket UUIDv4 key use in handshakes")
 
-(defvar *websocket-stream* nil
-  "The currently active WebSocket stream")
-(defvar *websocket-stream-mutex* nil
-  "Mutex lock for the currently active WebSocket stream")
 (defvar *websocket-socket* nil
   "The currently active WebSocket socket")
 
@@ -33,20 +25,33 @@
   (:documentation "Special WebSocket SSL acceptor"))
 
 (defclass websocket-client ()
-  ((stream     :initarg :stream
+  ((stream     :initarg stream
                :initform (error "Must make clients with streams"))
-   (request    :initarg :request
+   (request    :initarg request
                :reader client-request
                :initform (error "Must make clients with requests"))
    (write-lock :initform (make-lock))))
+
+(defmethod initialize-instance :after ((client websocket-client) &key &allow-other-keys)
+  "Allows CLIENT to be passed more keywords on MAKE-INSTANCE.")
 
 (defclass websocket-resource ()
   ((clients :initform nil :reader clients)
    (client-class :initarg :client-class :initform 'websocket-client)
    (lock :initform (make-lock))))
 
-(defgeneric message-received (resource message client))
-(defgeneric binary-received (resource binary client))
+(defgeneric message-received (resource client message))
+
+(defgeneric binary-received  (resource client binary))
+
+(defgeneric client-connected (resource client)
+  (:method (resource client)
+    (declare (ignore resource client))))
+
+(defgeneric client-disconnected (resource client)
+  (:method (resource client)
+    (declare (ignore resource client))))
+
 (defun send-message (client message)
   "MESSAGE is a string"
   (with-slots (write-lock stream) client
@@ -55,7 +60,7 @@
                    (flexi-streams:string-to-octets message :external-format :utf-8)))))
 
 
-;;; Requests, replies and websocket-specific conditions
+;;; Request/reply Hunchentoot overrides
 ;;;
 (defclass websocket-request (request)
   ((handler :accessor websocket-resource
@@ -70,14 +75,8 @@
   (setf (reply-external-format reply)
         (make-external-format :utf8 :eol-style :lf)))
 
-(define-condition websocket-illegal-frame-type (condition)
-  ((type :initarg :type :reader websocket-illegal-frame-type-of
-         :initform (required-argument :type)
-         :documentation "Spurious frame type received"))
-  (:documentation "Signal if client sends spurious frame type"))
-
 
-;;; client and resource machinery
+;;; Client and resource machinery
 ;;;
 (defmethod initialize-instance :after ((resource websocket-resource) &key client-class)
   (assert (subtypep client-class 'websocket-client)))
@@ -85,19 +84,25 @@
 (defun call-with-new-client-for-resource (client resource fn)
   (with-slots (clients lock) resource
     (unwind-protect
-           (progn
-             (bt:with-lock-held (lock)
-               (push client clients))
-             (funcall fn))
-        (bt:with-lock-held (lock)
-          (setq clients (remove client clients))))))
+         (progn
+           (bt:with-lock-held (lock)
+             (push client clients))
+           (client-connected resource client)
+           (funcall fn))
+      (client-disconnected resource client)
+      (bt:with-lock-held (lock)
+        (setq clients (remove client clients))))))
 
 (defmacro with-new-client-for-resource ((client-sym) (resource stream request)
                                         &body body)
-  (alexandria:once-only (resource)
-    `(let ((,client-sym (make-instance (slot-value ,resource 'client-class)
-                                       :stream ,stream
-                                       :request ,request)))
+  (alexandria:once-only (resource request)
+    `(let ((,client-sym (apply #'make-instance
+                               (slot-value ,resource 'client-class)
+                               'stream ,stream
+                               'request ,request
+                               :request ,request
+                               (loop for (header . value) in (headers-in ,request)
+                                     collect header collect value))))
        (call-with-new-client-for-resource ,client-sym
                                           ,resource
                                           #'(lambda () ,@body)))))
@@ -249,9 +254,10 @@ disconnect."
              (setf pending-fragments nil)
              (setf opcode (first (first in-order)))))
          (cond ((eq +text-frame+ opcode)
-                (message-received resource (flexi-streams:octets-to-string
-                                            data :external-format :utf-8)
-                                  client))
+                (message-received resource 
+                                  client
+                                  (flexi-streams:octets-to-string
+                                            data :external-format :utf-8)))
                ((eq +binary-frame+ opcode)
                 (message-received resource data client))
                ((eq +ping+ opcode)
@@ -264,7 +270,7 @@ disconnect."
   (list state pending-fragments))
 
 
-(defun websocket-loop (resource stream client
+(defun read-handle-loop (resource stream client
                        &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
 versions. Framing is handled automatically, CLIENT handles the actual
@@ -293,7 +299,7 @@ payloads."
 ;;; turn, try to figure out if the client is requesting
 ;;; websockets. Hunchentoot's `process-request' will also eventually
 ;;; reply to the client. In the `:after' specialization we might enter
-;;; into `websocket-loop' and thus keep the socket alive. That happens
+;;; into `read-handle-loop' and thus keep the socket alive. That happens
 ;;; if:
 ;;;
 ;;; 1. There are suitable "Connection" and "Upgrade" headers and
@@ -326,9 +332,9 @@ payloads."
                                       (maybe-invoke-debugger e)
                                       (log-message* :error "Websocket error: ~a" e)
                                       (throw 'websocket-done nil))))
-              (websocket-loop resource stream client))))))))
+              (read-handle-loop resource stream client))))))))
 
-(defmethod websocket-handle-handshake ((acceptor websocket-acceptor) request reply)
+(defmethod handle-handshake ((acceptor websocket-acceptor) request reply)
   "Analyse REQUEST for WebSocket handshake.
 
 Destructively modify REPLY accordingly in case of success, exit
@@ -388,32 +394,40 @@ non-locally with an error instead."
   "Attempt WebSocket connection, else fall back to HTTP"
   (cond ((and (member "upgrade" (split "\\s*,\\s*" (header-in* :connection))
                       :test #'string-equal)
-              (string= "websocket" (string-downcase (header-in* :upgrade)))
-              (setf (websocket-resource *request*)
-                    (find-websocket-resource *request*)))
-         (websocket-handle-handshake acceptor *request* *reply*)
-         ;; HACK! the empty string is also important because if there's no
-         ;; content Hunchentoot will declare the connection closed and set
-         ;; "Connection: Closed". But there can't be any actual content since
-         ;; otherwise it will piggyback onto the first websocket frame, which is
-         ;; interpreted as invalid by the client. It's also forbidden by the
-         ;; HTTP RFC2616:
-         ;;
-         ;;    All 1xx (informational), 204 (no content), and 304 (not modified)
-         ;;    responses MUST NOT include a message-body.
-         ;;
-         ;; There is a slight non-conformance here. This trick makes Hunchentoot
-         ;; send "Content-length: 0". Most browsers don't seem to care, but
-         ;; RFC2616 kind of implies that is forbidden, since it says the
-         ;;
-         ;;   the presence of a message-body is signaled by the inclusion of a
-         ;;   Content-Length or Transfer-Encoding header field in the requests's
-         ;;   message-headers
-         ;;
-         ;; However, we're sending a response, not a request.
-         ;;
-         (values "" nil nil))
+              (string= "websocket" (string-downcase (header-in* :upgrade))))
+         (cond ((setf (websocket-resource *request*)
+                      (find-websocket-resource *request*))
+                ;; Found the websocket resource
+                (handle-handshake acceptor *request* *reply*)
+                ;; HACK! the empty string is also important because if there's no
+                ;; content Hunchentoot will declare the connection closed and set
+                ;; "Connection: Closed". But there can't be any actual content since
+                ;; otherwise it will piggyback onto the first websocket frame, which is
+                ;; interpreted as invalid by the client. It's also forbidden by the
+                ;; HTTP RFC2616:
+                ;;
+                ;;    [...] All 1xx (informational), 204 (no content), and 304
+                ;;    (not modified) responses MUST NOT include a
+                ;;    message-body. [...]
+                ;;
+                ;; There is a slight non-conformance here. This trick makes Hunchentoot
+                ;; send "Content-length: 0". Most browsers don't seem to care, but
+                ;; RFC2616 kind of implies that is forbidden, since it says the
+                ;;
+                ;;    [...] the presence of a message-body is signaled by the
+                ;;    inclusion of a Content-Length or Transfer-Encoding header
+                ;;    field in the requests's message-headers [...]
+                ;;
+                ;; Note however, we're sending a response, not a request.
+                ;;
+                (values "" nil nil))
+               (t
+                ;; Didn't find the websocket-specific resource, return 404.
+                (setf (return-code *reply*) +http-not-found+)
+                (values nil nil nil))))
         (t
+         ;; Client is not requesting websockets, let Hunchentoot do its HTTP
+         ;; thing undisturbed.
          (call-next-method))))
 
 
