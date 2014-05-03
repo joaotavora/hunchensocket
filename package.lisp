@@ -1,10 +1,4 @@
-; FIXME upstream
-(in-package :hunchentoot)
-(export (list 'content-stream 'set-timeouts 'acceptor-listen-socket))
-
-(in-package :hunchensocket-system)
-
-(defpackage :hunchensocket
+(cl:defpackage :hunchensocket
   (:use :cl :alexandria :hunchentoot :cl-ppcre :alexandria
    :flexi-streams :trivial-utf-8 :bordeaux-threads)
   (:import-from :ironclad :digest-sequence)
