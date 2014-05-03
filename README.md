@@ -8,11 +8,11 @@ server.
 Hunchensocket goal is to support a (mostly) compliant [RFC6455][RFC6455]
 server.
 
-Note also that **this is a not-yet-sanctioned fork of the original
-library by Alexander Kahl**, which lives [here][kahl], but doesn't
-support the actual RFC, only drafts of the protocol.
+Note also that **this is a fork of the original library by Alexander
+Kahl**, which lives [here][kahl], but doesn't support the actual RFC,
+only drafts of the protocol.
 
-See the [COPYING][copying] for license details file.
+See [COPYING][copying] for license details.
 
 Installation
 ------------
@@ -27,7 +27,7 @@ $ git clone https://github.com/capitaomorte/hunchensocket.git
 
 then `(ql:quickload :hunchensocket)` in your REPL.
 
-A chat server in 32 lines
+A chat server in 30 lines
 -------------------------
 
 First define classes for rooms and users. Make these subclasses of
@@ -53,10 +53,10 @@ Define a list of rooms. Notice that
 (defvar *chat-rooms* (list (make-instance 'chat-room :name "/bongo")
                            (make-instance 'chat-room :name "/fury")))
 
-(defun find-create-chat-room (request)
+(defun find-room (request)
   (find (hunchentoot:script-name request) *chat-rooms* :test #'string= :key #'name))
 
-(pushnew 'find-create-chat-room hunchensocket:*websocket-dispatch-table*)
+(pushnew 'find-room hunchensocket:*websocket-dispatch-table*)
 ```
 
 OK, now a helper function and the dynamics of a chat room.
@@ -64,7 +64,7 @@ OK, now a helper function and the dynamics of a chat room.
 ```lisp
 (defun broadcast (room message &rest args)
   (loop for peer in (hunchensocket:clients room)
-        do (hunchensocket:send-message peer (apply #'format nil message args))))
+        do (hunchensocket:send-text-message peer (apply #'format nil message args))))
 
 (defmethod hunchensocket:client-connected ((room chat-room) user)
   (broadcast room "~a has joined ~a" (name user) (name room)))
@@ -72,7 +72,7 @@ OK, now a helper function and the dynamics of a chat room.
 (defmethod hunchensocket:client-disconnected ((room chat-room) user)
   (broadcast room "~a has left ~a" (name user) (name room)))
 
-(defmethod hunchensocket:message-received ((room chat-room) user message)
+(defmethod hunchensocket:text-message-received ((room chat-room) user message)
   (broadcast room "~a says ~a" (name user) message))  
 ```
 

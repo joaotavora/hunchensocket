@@ -12,23 +12,35 @@
   (:import-from :trivial-backtrace :print-backtrace)
   (:import-from :hunchentoot :log-message*)
   (:export
+   ;; acceptor classes
    #:websocket-acceptor
    #:websocket-ssl-acceptor
-   #:websocket-handle-handshake
-   #:websocket-send-message
-   #:websocket-send-term
-   #:default-websocket-handler
-   #:*websocket-stream*
-   #:*websocket-stream-mutex*
+
+   ;; dispatch table
    #:*websocket-dispatch-table*
-   #:websocket-echo-resource
+
+   ;; resource and client classes
    #:websocket-resource
    #:websocket-client
-   #:message-received
-   #:binary-received
    #:client-request
-   #:send-message
-   #:clients))
+
+   ;; message validation
+   #:check-message
+
+   ;; resource accessors
+   #:clients
+   
+   ;; status updates
+   ;;
+   #:client-connected
+   #:client-disconnected
+   
+   ;; receiving and sending messages
+   ;; 
+   #:binary-message-received
+   #:text-message-received
+   #:send-text-message
+   #:send-binary-message))
 
 
 
