@@ -156,9 +156,12 @@ format control and arguments."
              (push client clients))
            (client-connected resource client)
            (funcall fn))
-      (client-disconnected resource client)
       (bt:with-lock-held (lock)
-        (setq clients (remove client clients))))))
+        (with-slots (write-lock) client
+          (bt:with-lock-held (write-lock)
+            (setq clients (remove client clients))
+            (setq write-lock nil))))
+      (client-disconnected resource client))))
 
 (defmacro with-new-client-for-resource ((client-sym &key input-stream
                                                       output-stream
@@ -283,13 +286,15 @@ format control and arguments."
           (ldb (byte 7 0) second-byte) payload-length)
     (write-byte first-byte stream)
     (write-byte second-byte stream)
-    (loop repeat (cond ((= payload-length 126) 2)
-                       ((= payload-length 127) 8)
-                       (t                      0))
-          for out = len then (ash out -8)
+    (loop for i from  (1- (cond ((= payload-length 126) 2)
+                                ((= payload-length 127) 8)
+                                (t                      0)))
+          downto 0
+          for out = (ash len (- (* 8 i)))
           do (write-byte (logand out #xff) stream))
     ;; (if mask-p
     ;;     (error "sending masked messages not implemented yet"))
+    (swank-trace-dialog:trace-format "writing sequence")
     (if data (write-sequence data stream))
     (force-output stream)))
 
