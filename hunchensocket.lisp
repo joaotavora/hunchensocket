@@ -27,7 +27,7 @@
 (defclass websocket-acceptor (acceptor)
   ((websocket-timeout :initarg :websocket-timeout
                       :accessor websocket-timeout
-                      :initform 60
+                      :initform 300
                       :documentation "Custom WebSocket timeout override."))
   (:default-initargs :request-class 'websocket-request
                      :reply-class 'websocket-reply))
@@ -56,6 +56,13 @@
   ((clients :initform nil :reader clients)
    (client-class :initarg :client-class :initform 'websocket-client)
    (lock :initform (make-lock))))
+
+(defmethod print-object ((obj websocket-resource) stream)
+  (print-unreadable-object (obj stream :type t)
+    (with-slots (clients client-class) obj
+        (format stream "(~a connected clients of class ~a)"
+                (length clients)
+                client-class))))
 
 (defgeneric text-message-received (resource client message))
 
@@ -154,6 +161,7 @@ format control and arguments."
          (progn
            (bt:with-lock-held (lock)
              (push client clients))
+           (setf (slot-value client 'state) :connected)
            (client-connected resource client)
            (funcall fn))
       (bt:with-lock-held (lock)
@@ -294,7 +302,6 @@ format control and arguments."
           do (write-byte (logand out #xff) stream))
     ;; (if mask-p
     ;;     (error "sending masked messages not implemented yet"))
-    (swank-trace-dialog:trace-format "writing sequence")
     (if data (write-sequence data stream))
     (force-output stream)))
 
