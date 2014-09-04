@@ -1,5 +1,5 @@
-(stefil:define-test-package :hunchensocket-tests
-  (:use :cl :hunchensocket :stefil :alexandria)
+(fiasco:define-test-package :hunchensocket-tests
+  (:use :cl :hunchensocket :fiasco :alexandria)
   (:import-from :hunchensocket
                 #:with-new-client-for-resource
                 #:handle-frame
