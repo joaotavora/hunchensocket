@@ -87,7 +87,7 @@ just like `hunchentoot:acceptor`, and you can probably also use
 ```
 
 Now open two browser windows on http://www.websocket.org/echo.html,
-enter `ws://localhost:12345` as the host and play around chatting with
+enter `ws://localhost:12345/bongo` as the host and play around chatting with
 yourself.
 
 Design
