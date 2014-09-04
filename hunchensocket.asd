@@ -1,6 +1,7 @@
 (asdf:defsystem :hunchensocket
   :description "WebSockets for Hunchentoot"
   :license "MIT"
+  :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:hunchentoot
                :alexandria
                :ironclad
@@ -16,9 +17,12 @@
    (:file "hunchensocket")))
 
 (asdf:defsystem :hunchensocket-tests
-  :description "Tests for Hunchensoket"
+    :description "Tests for Hunchensoket"
+  :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:stefil
                :hunchensocket)
   :serial t
   :components
   ((:file "hunchensocket-tests")))
+
+
