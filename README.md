@@ -3,16 +3,10 @@ Hunchensocket - WebSockets for Hunchentoot
 
 Hunchensocket is a Common Lisp implementation of [WebSocket]s realized
 as an extension to [Edi Weitz'] [edi] excellent [Hunchentoot] web
-server.
+server. Hunchensocket implements a compliant [RFC6455][RFC6455] server. 
 
-Hunchensocket goal is to support a (mostly) compliant [RFC6455][RFC6455]
-server.
-
-Note also that **this is a fork of the original library by Alexander
-Kahl**, which lives [here][kahl], but doesn't support the actual RFC,
-only drafts of the protocol.
-
-See [COPYING][copying] for license details.
+Note that Alexander Kahl, the original author, has desactivated his 
+[old version][kahl] that only supports the drafts of the protocol.
 
 Installation
 ------------
@@ -89,6 +83,11 @@ just like `hunchentoot:acceptor`, and you can probably also use
 Now open two browser windows on http://www.websocket.org/echo.html,
 enter `ws://localhost:12345/bongo` as the host and play around chatting with
 yourself.
+
+License
+-------
+
+See [COPYING][copying] for license details.
 
 Design
 ------
