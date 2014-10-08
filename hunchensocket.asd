@@ -1,5 +1,6 @@
 (asdf:defsystem :hunchensocket
   :description "WebSockets for Hunchentoot"
+  :author "capitaomorte <https://github.com/capitaomorte>"
   :license "MIT"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:hunchentoot
