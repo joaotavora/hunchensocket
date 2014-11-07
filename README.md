@@ -11,15 +11,22 @@ Note that Alexander Kahl, the original author, has desactivated his
 Installation
 ------------
 
-Hunchensocket is supported by ASDF and is not (yet?) supported by
-[Quicklisp][Quicklisp]. Do this for now:
+Hunchensocket is in [Quicklisp][Quicklisp], so if you have that
+setup just do `(ql:quickload :hunchensocket)`.
+
+Quicklisp is also good to use the trunk alongside with other 
+dependencies, perhaps to test a new feature or a bugfix:
 
 ```
-$ cd ~/quicklisp/local-projects/
+$ cd ~/Source/Lisp/
 $ git clone https://github.com/capitaomorte/hunchensocket.git
 ```
 
-then `(ql:quickload :hunchensocket)` in your REPL.
+```lisp
+(push "~/Source/Lisp" ql:*local-project-directories*)
+(ql:quickload :hunchensocket) ;; use local hunchensocket and pull
+                              ;; dependencies from quicklisp
+```
 
 A chat server in 30 lines
 -------------------------
