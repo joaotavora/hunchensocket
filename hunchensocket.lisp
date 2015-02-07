@@ -283,7 +283,7 @@ format control and arguments."
   (let* ((first-byte     #x00)
          (second-byte    #x00)
          (len            (if data (length data) 0))
-         (payload-length (cond ((< len 125)         len)
+         (payload-length (cond ((<= len 125)        len)
                                ((< len (expt 2 16)) 126)
                                (t                   127)))
          (mask-p         nil))
