@@ -99,6 +99,11 @@
               (flexi-streams:string-to-octets message
                                               :external-format :utf-8)))
 
+(defun send-binary-message (client message)
+  "MESSAGE is an array of octets"
+  (send-frame client +binary-frame+
+              message))
+
 (defun close-connection (client &key data status reason)
   (send-frame client
               +connection-close+
