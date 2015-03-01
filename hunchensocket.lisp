@@ -97,15 +97,17 @@
 ;; Convenience API
 ;;
 (defun send-text-message (client message)
-  "MESSAGE is a string"
+  "Send MESSAGE, a string, to CLIENT"
+  (check-type message string)
   (send-frame client +text-frame+
               (flexi-streams:string-to-octets message
                                               :external-format :utf-8)))
 
 (defun send-binary-message (client message)
-  "MESSAGE is an array of octets"
+  "Send MESSAGE, an array of octets, to CLIENT"
+  (check-type message (vector (integer)))
   (send-frame client +binary-frame+
-              message))
+              (coerce message '(vector (unsigned-byte 8)))))
 
 (defun send-ping (client &optional (message #()))
   (send-frame client +ping+ message))
