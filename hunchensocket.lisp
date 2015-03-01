@@ -95,12 +95,14 @@
 ;;
 (defun send-text-message (client message)
   "MESSAGE is a string"
+  (check-type message string)
   (send-frame client +text-frame+
               (flexi-streams:string-to-octets message
                                               :external-format :utf-8)))
 
 (defun send-binary-message (client message)
   "MESSAGE is an array of octets"
+  (check-type message (vector (unsigned-byte 8)))
   (send-frame client +binary-frame+
               message))
 
