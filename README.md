@@ -63,18 +63,18 @@ Define a list of rooms. Notice that
 OK, now a helper function and the dynamics of a chat room.
 
 ```lisp
-(defun broadcast (room message &rest args)
+(defun broadcast (room message)
   (loop for peer in (hunchensocket:clients room)
-        do (hunchensocket:send-text-message peer (apply #'format nil message args))))
+        do (hunchensocket:send-text-message peer message)))
 
 (defmethod hunchensocket:client-connected ((room chat-room) user)
-  (broadcast room "~a has joined ~a" (name user) (name room)))
+  (broadcast room (format nil "~a has joined ~a" (name user) (name room))))
 
 (defmethod hunchensocket:client-disconnected ((room chat-room) user)
-  (broadcast room "~a has left ~a" (name user) (name room)))
+  (broadcast room (format nil "~a has left ~a" (name user) (name room))))
 
 (defmethod hunchensocket:text-message-received ((room chat-room) user message)
-  (broadcast room "~a says ~a" (name user) message))  
+  (broadcast room (format nil "~a says ~a" (name user) message)))  
 ```
 
 Finally, start the server. `hunchensocket:websocket-acceptor` works
