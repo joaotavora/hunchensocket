@@ -17,6 +17,7 @@
    #:websocket-resource
    #:websocket-client
    #:client-request
+   #:close-connection
 
    ;; message validation
    #:check-message

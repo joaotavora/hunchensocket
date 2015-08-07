@@ -104,10 +104,13 @@
   (send-frame client +binary-frame+
               message))
 
-(defun close-connection (client &key data status reason)
+(defun close-connection (client &key (data nil data-supplied-p)
+                                     (status 1000)
+                                     (reason "Normal close"))
   (send-frame client
               +connection-close+
-              (or data
+              (if data-supplied-p
+                  data
                   (concatenate 'vector
                                (coerce (list (logand (ash status -8) #xff)
                                              (logand status #xff))
@@ -604,7 +607,6 @@ non-locally with an error instead."
          ;; Client is not requesting websockets, let Hunchentoot do its HTTP
          ;; thing undisturbed.
          (call-next-method))))
-
 
 ;; Local Variables:
 ;; coding: utf-8-unix
