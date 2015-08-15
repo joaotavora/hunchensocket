@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/capitaomorte/snooze.svg?branch=master)](https://travis-ci.org/capitaomorte/snooze)
+[![Build Status](https://travis-ci.org/capitaomorte/hunchensocket.svg?branch=master)](https://travis-ci.org/capitaomorte/hunchensocket)
 Hunchensocket - WebSockets for Hunchentoot
 ==========================================
 
