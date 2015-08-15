@@ -150,7 +150,6 @@
 (defmethod check-message ((resource mock-resource)
                           (client mock-client) (opcode (eql +binary-frame+))
                           length total)
-  (swank-trace-dialog:trace-format "forrrrrrrrrrrrrnix!")
   (cond ((> length *max-fragment-size*)
          (websocket-error 1009 "Message fragment too big"))
         ((> total *max-total-size*)
