@@ -24,9 +24,9 @@ install:
 
 script:
   - cl -e '(push *default-pathname-defaults* ql:*local-project-directories*)
+           (ql:quickload :fiasco)
            (ql:quickload :hunchensocket)
            (ql:quickload :hunchensocket-tests)
-           (ql:quickload :fiasco)
            (defparameter *result* (fiasco:run-package-tests :packages
                                      (quote (:hunchensocket-tests))))
            (unless *result* (uiop:quit 1))
