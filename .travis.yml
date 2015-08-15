@@ -4,7 +4,7 @@ sudo: required
 env:
   matrix:
 #    - LISP=abcl
-    - LISP=allegro
+#    - LISP=allegro
     - LISP=sbcl
 #    - LISP=sbcl32
     - LISP=ccl
