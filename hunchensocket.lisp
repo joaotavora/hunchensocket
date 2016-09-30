@@ -174,9 +174,10 @@ format control and arguments."
            (funcall fn))
       (bt:with-lock-held (lock)
         (with-slots (write-lock) client
-          (bt:with-lock-held (write-lock)
-            (setq clients (remove client clients))
-            (setq write-lock nil))))
+          (let ((write-lock-copy write-lock))
+            (bt:with-lock-held (write-lock-copy)
+              (setq clients (remove client clients))
+              (setq write-lock nil)))))
       (client-disconnected resource client))))
 
 (defmacro with-new-client-for-resource ((client-sym &key input-stream
