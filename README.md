@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/capitaomorte/hunchensocket.svg?branch=master)](https://travis-ci.org/capitaomorte/hunchensocket)
+[![Build Status](https://travis-ci.org/joaotavora/hunchensocket.svg?branch=master)](https://travis-ci.org/joaotavora/hunchensocket)
 Hunchensocket - WebSockets for Hunchentoot
 ==========================================
 
@@ -20,7 +20,7 @@ dependencies, perhaps to test a new feature or a bugfix:
 
 ```
 $ cd ~/Source/Lisp/
-$ git clone https://github.com/capitaomorte/hunchensocket.git
+$ git clone https://github.com/joaotavora/hunchensocket.git
 ```
 
 ```lisp
@@ -114,6 +114,6 @@ Main sources of inspiration:
 [kahl]: https://github.com/e-user/hunchensocket
 [RFC6455]: https://tools.ietf.org/html/rfc6455
 [clws]: https://github.com/3b/clws
-[copying]: https://github.com/capitaomorte/hunchensocket/blob/master/COPYING
+[copying]: https://github.com/joaotavora/hunchensocket/blob/master/COPYING
 [Hunchentoot]: http://weitz.de/hunchentoot/
 [Quicklisp]: http://www.quicklisp.org/  
