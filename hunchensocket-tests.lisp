@@ -76,8 +76,7 @@
 
 (defmethod text-message-received ((resource mock-resource)
                                   (client mock-client) message)
-  (is *expected-messages* "Didn't expect a message at all but got ~a"
-      message)
+  (is *expected-messages* "Didn't expect a message at all but got one")
   (when *expected-messages*
     (is (string= (pop *expected-messages*) message))
     (with-slots (received-messages) client
@@ -86,7 +85,7 @@
 (defmethod binary-message-received ((resource mock-resource)
                                     (client mock-client) file)
   (is *expected-files*
-      "Didn't expect a binary file at all but got ~a" file)
+      "Didn't expect a binary file at all but got one")
   (when *expected-files*
     (let ((file-contents
             (with-open-file (fstream file :direction :input
