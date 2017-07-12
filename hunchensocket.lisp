@@ -1,5 +1,8 @@
 (in-package :hunchensocket)
 
+(defvar websocket-maximum-fragment-size #xffff) ;64KiB
+(defvar websocket-maximum-message-size #xfffff) ;1 MiB
+
 (define-constant +websocket-magic-key+
   "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   :test #'string=
@@ -82,9 +85,9 @@
   (:method ((resource websocket-resource)
             (client websocket-client) opcode length total)
     (declare (ignore resource client))
-    (cond ((> length #xffff) ; 65KiB
+    (cond ((> length websocket-maximum-fragment-size)
            (websocket-error 1009 "Message fragment too big"))
-          ((> total #xfffff) ; 1 MiB
+          ((> total websocket-maximum-message-size)
            (websocket-error 1009 "Total message too big"))))
   (:method ((resource websocket-resource)
             (client websocket-client)
@@ -439,11 +442,11 @@ payloads."
     (:rfc-6455
      (handler-bind ((websocket-error
                       #'(lambda (error)
-                          (with-slots (status format-control format-arguments)
+                          (with-slots (error-status format-control format-arguments)
                               error
                             (close-connection
                              client
-                             :status status
+                             :status error-status
                              :reason (princ-to-string error)))))
                     (flexi-streams:external-format-error
                       #'(lambda (e)

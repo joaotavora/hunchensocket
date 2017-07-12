@@ -9,6 +9,8 @@
    ;; acceptor classes
    #:websocket-acceptor
    #:websocket-ssl-acceptor
+   #:websocket-maximum-fragment-size
+   #:websocket-maximum-message-size
 
    ;; dispatch table
    #:*websocket-dispatch-table*
