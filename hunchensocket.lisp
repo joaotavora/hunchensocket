@@ -33,7 +33,9 @@
                      :reply-class 'websocket-reply))
 
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
-  (:documentation "Special WebSocket SSL acceptor"))
+  (:documentation "Special WebSocket SSL acceptor")
+  (:default-initargs :request-class 'websocket-request
+                     :reply-class 'websocket-reply))
 
 (defclass websocket-client ()
   ((input-stream     :initarg input-stream
