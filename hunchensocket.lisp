@@ -170,6 +170,9 @@ format control and arguments."
   (with-slots (clients lock) resource
     (unwind-protect
          (progn
+           (format t "resource is ~s, lock is ~s~%" lock resource)
+           #+sbcl(sb-ext:atomic-push client clients)
+           #-sbcl
            (bt:with-lock-held (lock)
              (push client clients))
            (setf (slot-value client 'state) :connected)
