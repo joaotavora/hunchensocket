@@ -46,7 +46,7 @@
    (request    :initarg request
                :reader client-request
                :initform (error "Must make clients with requests"))
-   (write-lock :initform (make-lock))
+   (write-lock :initform (make-lock "websocket client"))
    (state      :initform :disconnected)
    (pending-fragments :initform nil)
    (pending-opcode    :initform nil)))
@@ -58,7 +58,7 @@
 (defclass websocket-resource ()
   ((clients :initform nil :reader clients)
    (client-class :initarg :client-class :initform 'websocket-client)
-   (lock :initform (make-lock))))
+   (lock :initform (make-lock "websocket"))))
 
 (defmethod print-object ((obj websocket-resource) stream)
   (print-unreadable-object (obj stream :type t)
