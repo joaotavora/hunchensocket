@@ -20,7 +20,7 @@
 (asdf:defsystem :hunchensocket-tests
     :description "Tests for Hunchensoket"
   :version #.(with-open-file (f "VERSION") (string (read f)))
-  :depends-on (:stefil
+  :depends-on (:fiasco
                :hunchensocket)
   :serial t
   :components
