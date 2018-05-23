@@ -502,7 +502,12 @@ payloads."
                                               :resource resource
                                               :request request)
           ;; HACK! ask upstream Hunchentoot for this.
+          #-lispworks
           (hunchentoot::set-timeouts *websocket-socket* timeout timeout)
+          #+lispworks
+          (setf (stream:stream-read-timeout stream) timeout
+                (stream:stream-write-timeout stream) timeout)
+          
           (catch 'websocket-done
             (handler-bind ((error #'(lambda (e)
                                       (maybe-invoke-debugger e)
