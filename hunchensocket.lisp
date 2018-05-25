@@ -501,7 +501,11 @@ payloads."
                                               :output-stream stream
                                               :resource resource
                                               :request request)
-          ;; HACK! ask upstream Hunchentoot for this.
+          ;; See https://github.com/joaotavora/hunchensocket/pull/23
+          ;; LispWorks in Hunchentoot passes around a USOCKET:USOCKET
+          ;; handle, not an actual such object. Unfortunately, abusing
+          ;; Hunchentoot's internals consequently forces us to tend to
+          ;; this LispWorks particularity.
           #-lispworks
           (hunchentoot::set-timeouts *websocket-socket* timeout timeout)
           #+lispworks
