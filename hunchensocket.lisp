@@ -44,7 +44,7 @@
                :reader client-request
                :initform (error "Must make clients with requests"))
    (write-lock :initform (make-lock))
-   (state      :initform :disconnected)
+   (state      :initform :disconnected) ;; states :connected :disconnected :error
    (pending-fragments :initform nil)
    (pending-opcode    :initform nil)))
 
@@ -173,10 +173,11 @@ format control and arguments."
            (client-connected resource client)
            (funcall fn))
       (bt:with-lock-held (lock)
-        (with-slots (write-lock) client
+        (with-slots (write-lock state) client
           (bt:with-lock-held (write-lock)
             (setq clients (remove client clients)))
-          (setq write-lock nil)))
+          (setq write-lock nil
+                state      :error)))
       (client-disconnected resource client))))
 
 (defmacro with-new-client-for-resource ((client-sym &key input-stream
