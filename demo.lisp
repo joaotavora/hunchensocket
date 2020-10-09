@@ -21,8 +21,8 @@
 ;; `hunchensocket:*websocket-dispatch-table*` works just like
 ;; `hunchentoot:*dispatch-table*`, but for websocket specific resources.
 
-(defvar *chat-rooms* (list (make-instance 'chat-room :name "/bongo")
-                           (make-instance 'chat-room :name "/fury")))
+(defparameter *chat-rooms* (list (make-instance 'chat-room :name "/bongo")
+                                 (make-instance 'chat-room :name "/fury")))
 
 (defun find-room (request)
   (find (hunchentoot:script-name request) *chat-rooms* :test #'string= :key #'name))
@@ -48,9 +48,11 @@
 ;; just like `hunchentoot:acceptor`, and you can probably also use
 ;; `hunchensocket:websocket-ssl-acceptor`.
 
-(defvar *server* (make-instance 'hunchensocket:websocket-acceptor :port 12345))
+(defparameter *server* (make-instance 'hunchensocket:websocket-acceptor
+                                :port 12346
+                                :extension (make-instance 'hunchensocket::permessage-deflate)))
 
-(unless (hunchentoot::acceptor-listen-socket acceptor) ; should be
+(unless (hunchentoot::acceptor-listen-socket *server*) ; should be
                                                        ; hunchentoot:listening-p
                                                        ; if it existed
   (hunchentoot:start *server*))

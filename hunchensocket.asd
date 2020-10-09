@@ -11,11 +11,17 @@
                :trivial-utf-8
                :trivial-backtrace
                :bordeaux-threads
-               :cl-fad)
+               :cl-fad
+               :deoxybyte-gzip
+               :cffi
+               :chipz
+               :salza2
+               :str)
   :serial t
   :components
   ((:file "package")
-   (:file "hunchensocket")))
+   (:file "hunchensocket")
+   (:file "extensions")))
 
 (asdf:defsystem :hunchensocket-tests
     :description "Tests for Hunchensoket"
