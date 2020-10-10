@@ -14,17 +14,17 @@
                :cl-fad
                :deoxybyte-gzip
                :cffi
-               :chipz
-               :salza2
+               :trivial-garbage
                :str)
   :serial t
   :components
   ((:file "package")
    (:file "hunchensocket")
+   (:file "compression")
    (:file "extensions")))
 
 (asdf:defsystem :hunchensocket-tests
-    :description "Tests for Hunchensoket"
+    :description "Tests for Hunchensocket"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:fiasco
                :hunchensocket)

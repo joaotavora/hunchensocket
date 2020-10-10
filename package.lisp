@@ -37,6 +37,42 @@
    #:send-text-message
    #:send-binary-message))
 
-
-
-
+(cl:defpackage #:compression
+  (:use #:common-lisp)
+  (:import-from #:zlib-ffi
+                #:%inflate
+                #:%deflate
+                #:avail-in
+                #:avail-out
+                #:next-in
+                #:next-out
+                #:total-in
+                #:total-out
+                #:z-stream
+                #:make-shareable-byte-vector
+                #:+z-no-flush+
+                #:+z-finish+
+                #:+z-sync-flush+
+                #:+z-stream-error+
+                #:+z-data-error+)
+  (:import-from #:deoxybyte-gzip
+                #:z-stream-open
+                #:z-stream-close
+                #:fill-from-stream
+                #:empty-to-stream
+                #:+default-zlib-buffer-size+
+                #:vector-index
+                #:z-error
+                #:zlib-error
+                #:errno-of
+                #:fill-from-stream
+                #:empty-to-stream)
+  (:import-from #:trivial-garbage
+                #:finalize)
+  (:import-from #:cffi
+                #:with-foreign-slots
+                #:with-pointer-to-vector-data)
+  (:import-from #:flexi-streams
+                #:with-input-from-sequence
+                #:with-output-to-sequence
+                #:string-to-octets))
