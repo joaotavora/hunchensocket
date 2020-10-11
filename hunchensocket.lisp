@@ -30,9 +30,9 @@
                       :initform 300
                       :documentation "Custom WebSocket timeout override.")
    (extension         :type 'websocket-extension
-                      :initarg :extension
+                      :initarg :extensions
                       :initform nil
-                      :reader websocket-acceptor-extension
+                      :reader websocket-acceptor-extensions
                       :documentation "A list of extension objects allowing
                       this acceptor to support extensions to the WS protocol." ))
   (:default-initargs :request-class 'websocket-request
@@ -52,17 +52,14 @@
    (write-lock :initform (make-lock))
    (state      :initform :disconnected)
    (pending-fragments :initform nil)
-   (pending-opcode    :initform nil)))
+   (pending-opcode    :initform nil)
+   (extension-instances :initarg :extension-instances
+                        :initform nil
+                        :reader client-extension-instances)))
 
 (defmethod initialize-instance :after ((client websocket-client)
                                        &key &allow-other-keys)
   "Allows CLIENT to be passed more keywords on MAKE-INSTANCE.")
-
-(defmethod client-extension ((client websocket-client))
-  "Get the extension object(s) associated with the acceptor that
-created this CLIENT's REQUEST."
-  (websocket-acceptor-extension (slot-value (client-request client)
-                                            'acceptor)))
 
 (defclass websocket-resource ()
   ((clients :initform nil :reader clients)
@@ -194,7 +191,8 @@ format control and arguments."
 (defmacro with-new-client-for-resource ((client-sym &key input-stream
                                                     output-stream
                                                     resource
-                                                    request)
+                                                    request
+                                                    extension-instances)
                                         &body body)
   (alexandria:once-only (resource request)
     `(let ((,client-sym (apply #'make-instance
@@ -203,6 +201,7 @@ format control and arguments."
                                'output-stream ,output-stream
                                'request ,request
                                :request ,request
+                               :extension-instances ,extension-instances
                                (loop for (header . value)
                                   in (headers-in ,request)
                                   collect header collect value))))
@@ -383,85 +382,69 @@ format control and arguments."
            ;; This is a final, FIN fragment. So first read the fragment's data
            ;; into the `data' slot.
            ;;
-           (cond ((not (control-frame-p opcode))
-                  ;; This is either a single-fragment data frame or a continuation
-                  ;; frame. Join the fragments and keep on processing. Join any
-                  ;; outstanding fragments and process the message.
-                  ;;
-                  (maybe-accept-data-frame)
-                  (unless pending-opcode
-                    (setq pending-opcode opcode))
-                  (let* ((ordered-frames (reverse (cons frame pending-fragments)))
-                         (ext-data       (frame-extension-data (car ordered-frames)))
-                         (message-data   (apply #'concatenate '(vector (unsigned-byte 8))
-                                                (mapcar #'frame-data ordered-frames))))
-                    (cond ((plusp ext-data)
-                           ;; One of the RSV bits is set in the first frame. Check the
-                           ;; supported extensions for the client, and if enabled RSV
-                           ;; bit matches, perfom extension-specific processing
-                           (if (= ext-data (extension-frame-data (client-extension client)))
-                               (let ((processed (process-receive-message (client-extension client)
-                                                                         message-data)))
-                                 (format t "Compressed data  : ~a~&" message-data)
-                                 (format t "Processed message: ~a~&" processed)
-                                 (cond ((eq +text-frame+ pending-opcode)
-                                        (text-message-received resource client
-                                                               (flexi-streams:octets-to-string processed
-                                                                                               :external-format :utf-8)))
-                                       ((eq +binary-frame+ pending-opcode)
-                                        (binary-message-received resource client processed))
-                                       (:else
-                                        (websocket-error 1002 "Cient sent unknown opcode ~a" pending-opcode))))
-                               ;; The RSV bits don't match the extension we are supporting on this acceptor/client
-                               (websocket-error 1002
-                                                "Unsupported extension data for extension ~a. RSV bits: ~a"
-                                                (client-extension client) (format nil "~b" ext-data))))
-                          
-                          ((eq +text-frame+ pending-opcode)
-                           ;; A text message was received
-                           ;;
-                           (text-message-received
-                            resource client
-                            (flexi-streams:octets-to-string
-                             (apply #'concatenate 'vector
-                                    (mapcar #'frame-data
-                                            ordered-frames))
-                             :external-format :utf-8)))
-                          ((eq +binary-frame+ pending-opcode)
-                           ;; A binary message was received
-                           ;;
-                           (let ((temp-file
-                                  (fad:with-output-to-temporary-file
-                                      (fstream :element-type '(unsigned-byte 8))
-                                    (loop for fragment in ordered-frames
-                                       do (write-sequence (frame-data frame)
-                                                          fstream)))))
-                             (unwind-protect
-                                  (binary-message-received resource client
-                                                           temp-file)
-                               (delete-file temp-file))))
-                          (t
-                           (websocket-error
-                            1002 "Client sent unknown opcode ~a" opcode))))
-                  (setf pending-fragments nil))
-                 ((eq +ping+ opcode)
-                  ;; Reply to client-initiated ping with a server-pong with the
-                  ;; same data
-                  (send-frame client +pong+ (frame-data frame)))
-                 ((eq +connection-close+ opcode)
-                  ;; Reply to client-initiated close with a server-close with the
-                  ;; same data
-                  ;;
-                  (close-connection client :data (frame-data frame))
-                  (setq state :closed))
-                 ((eq +pong+ opcode)
-                  ;; Probably just a heartbeat, don't do anything.
-                  )
-                 (t
-                  (websocket-error
-                   1002 "Client sent unknown opcode ~a" opcode)))))))))
-
-
+           (cond
+             ((not (control-frame-p opcode))
+              ;; This is either a single-fragment data frame or a continuation
+              ;; frame. Join the fragments and keep on processing. Join any
+              ;; outstanding fragments and process the message.
+              ;;
+              (maybe-accept-data-frame)
+              (unless pending-opcode
+                (setq pending-opcode opcode))
+              (let ((ordered-frames (reverse (cons frame pending-fragments))))
+                (cond
+                  ((client-extension-instances client)
+                   ;; If there are extension instances on client, let these
+                   ;; take over processing.
+                   (reduce (lambda (result extn)
+                             (process-receive-frames extn result))
+                           (client-extension-instances client)
+                           :initial-value ordered-frames))
+                  ((eq +text-frame+ pending-opcode)
+                       ;; A text message was received
+                       ;;
+                       (text-message-received
+                        resource client
+                        (flexi-streams:octets-to-string
+                         (apply #'concatenate 'vector
+                                (mapcar #'frame-data
+                                        ordered-frames))
+                         :external-format :utf-8)))
+                      ((eq +binary-frame+ pending-opcode)
+                       ;; A binary message was received
+                       ;;
+                       (let ((temp-file
+                              (fad:with-output-to-temporary-file
+                                  (fstream :element-type '(unsigned-byte 8))
+                                (loop for fragment in ordered-frames
+                                   do (write-sequence (frame-data frame)
+                                                      fstream)))))
+                         (unwind-protect
+                              (binary-message-received resource client
+                                                       temp-file)
+                           (delete-file temp-file))))
+                      (t
+                       (websocket-error
+                        1002 "Client sent unknown opcode ~a" opcode))))
+              (setf pending-fragments nil))
+             ((eq +ping+ opcode)
+              ;; Reply to client-initiated ping with a server-pong with the
+              ;; same data
+              (send-frame client +pong+ (frame-data frame)))
+             ((eq +connection-close+ opcode)
+              ;; Reply to client-initiated close with a server-close with the
+              ;; same data
+              ;;
+              (close-connection client :data (frame-data frame))
+              (setq state :closed))
+             ((eq +pong+ opcode)
+              ;; Probably just a heartbeat, don't do anything.
+              )
+             (t
+              (websocket-error
+               1002 "Client sent unknown opcode ~a" opcode)))))))))
+  
+  
 (defun read-handle-loop (resource client
                          &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
@@ -524,7 +507,10 @@ payloads."
 (defmethod process-request :after ((request websocket-request))
   "After HTTP processing REQUEST, maybe hijack into WebSocket loop."
   ;; HACK! ask upstream Hunchentoot for this.
-  (let ((stream (hunchentoot::content-stream request)))
+  (let ((stream (hunchentoot::content-stream request))
+        ;; If this acceptor was defined with any extensions, create instances
+        ;; of their classes so they can be passed to the client
+        (extension-instances (initialize-extensions (request-acceptor request))))
     (when (= +http-switching-protocols+ (return-code*))
       (force-output stream)
       (let* ((timeout (websocket-timeout (request-acceptor request)))
@@ -532,7 +518,8 @@ payloads."
         (with-new-client-for-resource (client :input-stream stream
                                               :output-stream stream
                                               :resource resource
-                                              :request request)
+                                              :request request
+                                              :extension-instances extension-instances)
           ;; See https://github.com/joaotavora/hunchensocket/pull/23
           ;; LispWorks in Hunchentoot passes around a USOCKET:USOCKET
           ;; handle, not an actual such object. Unfortunately, abusing
@@ -587,7 +574,7 @@ non-locally with an error instead."
              ;; Get the list of extension headers for each extension specified
              ;; for this acceptor and add them to the header
              (setf (header-out :sec-websocket-extensions reply)
-                   (format-headers (extension-headers (websocket-acceptor-extension acceptor))))
+                   (format-extension-headers acceptor))
              
              (setf (return-code* reply) +http-switching-protocols+
                    (header-out :upgrade reply) "WebSocket"

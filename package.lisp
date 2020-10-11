@@ -5,6 +5,9 @@
   (:import-from :chunga :read-char*)
   (:import-from :trivial-backtrace :print-backtrace)
   (:import-from :hunchentoot :log-message*)
+  (:import-from #:compression
+                #:persistent-z-stream
+                #:stream-operation)
   (:export
    ;; acceptor classes
    #:websocket-acceptor
@@ -75,4 +78,6 @@
   (:import-from #:flexi-streams
                 #:with-input-from-sequence
                 #:with-output-to-sequence
-                #:string-to-octets))
+                #:string-to-octets)
+  (:export #:persistent-z-stream
+           #:stream-operation))

@@ -1,14 +1,26 @@
 (in-package #:compression)
 
 (defclass persistent-z-stream ()
-  ((operation :initarg :operation
-              :initform (error "Must specify one of (:inflate :deflate)")
-              :reader persistent-op)
+  ((operation       :initarg :operation
+                    :initform (error "Must specify one of (:inflate :deflate)")
+                    :reader persistent-op)
+   (compression     :initarg :compression
+                    :initform zlib-ffi::+z-default-compression+)
+   (suppress-header :initarg :suppress-header
+                    :initform t)
+   (gzip-format     :initarg :gzip-format
+                    :initform nil)
+   (window-bits     :initarg :window-bits
+                    :initform 15)
+   (mem-level       :initarg :mem-level
+                    :initform 8)
+   (strategy        :initarg strategy
+                    :initform :default-strategy)
    (z-stream  :initform nil
               :accessor persistent-stream))
-  (:documentation "Wrapper class for ZLIB-FFI:Z-STREAM. Accessing the
-Zlib z-stream pointer this way allows the foreign memory to be
-automatically freed when objects of this class are garbage
+  (:documentation "Wrapper class for ZLIB-FFI:Z-STREAM. 
+Accessing the Zlib z-stream pointer this way allows the foreign memory
+to be automatically freed when objects of this class are garbage
 collected. It also means we don't need to specify the operation we
 want to do (:inflate or :deflate), as this is a property of the
 stream."))
@@ -16,14 +28,20 @@ stream."))
 (defmethod initialize-instance :after ((object persistent-z-stream) &key)
   "Set up the foreign pointer to the zlib stream and take care of
 freeing the foreign memory when the object is garbage-collected."
-  (let* ((op (persistent-op object))
-         (zs (z-stream-open op :suppress-header t :gzip-format nil)))
+  (let ((op (persistent-op object)) ; This is needed in the FINALIZE lambda so we don't want to close
+                                    ; over the object
+        (zs (with-slots (operation compression suppress-header gzip-format
+                         window-bits mem-level strategy) object
+              (z-stream-open operation :compression compression
+                             :suppress-header suppress-header
+                             :gzip-format gzip-format :window-bits window-bits
+                             :mem-level mem-level :strategy strategy))))
     (setf (persistent-stream object) zs)
     ;; Function to call when the object is garbage collected to
     ;; release the foreign memory
     (finalize object (lambda ()
                        (handler-case
-                           (z-stream-close zs op)
+                             (z-stream-close zs op)
                          (zlib-error (condition)
                            ;; According to the Zlib manual, if a Z_DATA_ERROR is
                            ;; returned when closing a stream, the memory is still
@@ -32,8 +50,11 @@ freeing the foreign memory when the object is garbage-collected."
                                (values nil condition)
                                condition)))))))
 
-(defmethod stream-operation ((object persistent-z-stream) source dest input-fn
-                             output-fn buffer-size flush-type)
+(defgeneric stream-operation (stream-object source dest &key))
+
+(defmethod stream-operation ((object persistent-z-stream) source dest
+                             &key (input-fn #'fill-from-stream) (output-fn #'empty-to-stream)
+                                  (buffer-size +default-zlib-buffer-size+) (flush-type +z-sync-flush+))
   "Reimplementation of DEOXYBYTE-GZIP:Z-STREAM-OPERATION.
 
 Additionally allows specification of zlib flush type, which is needed for

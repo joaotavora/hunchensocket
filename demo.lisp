@@ -49,8 +49,10 @@
 ;; `hunchensocket:websocket-ssl-acceptor`.
 
 (defparameter *server* (make-instance 'hunchensocket:websocket-acceptor
-                                :port 12346
-                                :extension (make-instance 'hunchensocket::permessage-deflate)))
+                                      :port 12347
+                                      :extensions '((:extension hunchensocket::permessage-deflate
+                                                     :headers ("permessage-deflate")
+                                                     :parameters nil))))
 
 (unless (hunchentoot::acceptor-listen-socket *server*) ; should be
                                                        ; hunchentoot:listening-p
