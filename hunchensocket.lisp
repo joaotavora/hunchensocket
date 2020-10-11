@@ -113,6 +113,30 @@
   (send-frame client +binary-frame+
               message))
 
+(defun send-message (client message &key (opcode +text-frame+))
+  "As above, but check for extensions on client and apply any
+processing they require"
+  (flet ((apply-extension-fns (generic datum)
+           (reduce (lambda (result extn)
+                     (funcall generic extn result))
+                   (client-extension-instances client)
+                   :initial-value datum)))
+
+    (let* ((message-bytes (if (= opcode +text-frame+)
+                              (flexi-streams:string-to-octets message :external-format :utf-8)
+                              message))
+           (frame (make-instance 'frame
+                                 :opcode opcode
+                                 :finp t
+                                 :data (apply-extension-fns #'process-send-message message-bytes))))
+
+      (with-slots (write-lock output-stream) client
+        (with-lock-held (write-lock)
+          (write-sequence
+           (build-frame (apply-extension-fns #'process-send-frames frame))
+           output-stream)
+          (finish-output output-stream))))))
+
 (defun close-connection (client &key (data nil data-supplied-p)
                                   (status 1000)
                                   (reason "Normal close"))
@@ -231,7 +255,7 @@ format control and arguments."
 
 (defclass frame ()
   ((opcode          :initarg :opcode :accessor frame-opcode)
-   (data                             :accessor frame-data)
+   (data            :initarg :data   :accessor frame-data)
    (finp            :initarg :finp)
    (payload-length  :initarg :payload-length :accessor frame-payload-length)
    (masking-key     :initarg :masking-key)
@@ -320,6 +344,7 @@ format control and arguments."
     ;;     (error "sending masked messages not implemented yet"))
     (if data (write-sequence data stream))
     (force-output stream)))
+
 
 
 ;;; State machine and main websocket loop

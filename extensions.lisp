@@ -30,7 +30,6 @@
 to be passed to a client instance."
   (let ((extension-data (websocket-acceptor-extensions acceptor)))
     (mapcar (lambda (sublist)
-              (format t "~a~&" sublist)
               (apply #'make-instance (second sublist) (sixth sublist)))
             extension-data)))
 
@@ -57,7 +56,7 @@ outgoing frames and/or messages."))
   ((inflate-stream :initform (make-instance 'persistent-z-stream :operation :inflate)
                    :reader pmd-inflate-stream)
    (deflate-stream :initform (make-instance 'persistent-z-stream :operation :deflate)
-     :reader pmd-deflate-stream)))
+                   :reader pmd-deflate-stream)))
 
 (defun array-slice (vector start end)
   "Slice an array by indices"
@@ -91,6 +90,13 @@ outgoing frames and/or messages."))
             (:else
              (websocket-error 1002 "Client sent unknown opcode ~a" opcode))))))
 
+(defmethod process-send-frames ((ext permessage-deflate) frames)
+  (let ((first-frame (if (listp frames)
+                         (car frames)
+                         frames)))
+    (setf (frame-extension-data first-frame) #x04)
+    first-frame))
+
 (defmethod process-send-message ((ext permessage-deflate) message-bytes)
   "Compress an outgoing message, following the procedure in RFC7692"
   (array-slice (with-input-from-sequence (in message-bytes)
@@ -98,3 +104,31 @@ outgoing frames and/or messages."))
                    (stream-operation (pmd-deflate-stream ext)
                                      in out :flush-type zlib-ffi::+z-sync-flush+)))
                0 -4))
+
+(defmethod build-frame ((frame frame))
+  "Construct the frame byte data for the given FRAME object"
+  (with-slots (opcode data finp extension-data) frame
+    (let* ((first-byte     #x00)
+           (second-byte    #x00)
+           (len            (if data (length data) 0))
+           (payload-length (cond ((<= len 125)        len)
+                                 ((< len (expt 2 16)) 126)
+                                 (t                   127)))
+           (mask-p         nil))
+      (setf (ldb (byte 1 7) first-byte)  (if finp 1 0)
+            (ldb (byte 3 4) first-byte)  extension-data
+            (ldb (byte 4 0) first-byte)  opcode
+            (ldb (byte 1 7) second-byte) (if mask-p 1 0)
+            (ldb (byte 7 0) second-byte) payload-length)
+      (with-output-to-sequence (output)
+        (write-byte first-byte output)
+        (write-byte second-byte output)
+        (loop for i from  (1- (cond ((= payload-length 126) 2)
+                                    ((= payload-length 127) 8)
+                                    (t                      0)))
+           downto 0
+           for out = (ash len (- (* 8 i)))
+           do (write-byte (logand out #xff) output))
+        ;; (if mask-p
+        ;;     (error "sending masked messages not implemented yet"))
+        (if data (write-sequence data output))))))
