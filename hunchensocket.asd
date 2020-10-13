@@ -11,14 +11,20 @@
                :trivial-utf-8
                :trivial-backtrace
                :bordeaux-threads
-               :cl-fad)
+               :cl-fad
+               :deoxybyte-gzip
+               :cffi
+               :trivial-garbage
+               :str)
   :serial t
   :components
   ((:file "package")
-   (:file "hunchensocket")))
+   (:file "compression")
+   (:file "hunchensocket")
+   (:file "extensions")))
 
 (asdf:defsystem :hunchensocket-tests
-    :description "Tests for Hunchensoket"
+    :description "Tests for Hunchensocket"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:fiasco
                :hunchensocket)

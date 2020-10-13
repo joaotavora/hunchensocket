@@ -1,7 +1,7 @@
 (in-package :hunchensocket)
 
 (define-constant +websocket-magic-key+
-  "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   :test #'string=
   :documentation "Fixed magic WebSocket UUIDv4 key use in handshakes")
 
@@ -28,9 +28,15 @@
   ((websocket-timeout :initarg :websocket-timeout
                       :accessor websocket-timeout
                       :initform 300
-                      :documentation "Custom WebSocket timeout override."))
+                      :documentation "Custom WebSocket timeout override.")
+   (extension         :type 'websocket-extension
+                      :initarg :extensions
+                      :initform nil
+                      :reader websocket-acceptor-extensions
+                      :documentation "A list of extension objects allowing
+                      this acceptor to support extensions to the WS protocol." ))
   (:default-initargs :request-class 'websocket-request
-                     :reply-class 'websocket-reply))
+    :reply-class 'websocket-reply))
 
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
   (:documentation "Special WebSocket SSL acceptor"))
@@ -46,7 +52,10 @@
    (write-lock :initform (make-lock))
    (state      :initform :disconnected)
    (pending-fragments :initform nil)
-   (pending-opcode    :initform nil)))
+   (pending-opcode    :initform nil)
+   (extension-instances :initarg :extension-instances
+                        :initform nil
+                        :reader client-extension-instances)))
 
 (defmethod initialize-instance :after ((client websocket-client)
                                        &key &allow-other-keys)
@@ -60,9 +69,9 @@
 (defmethod print-object ((obj websocket-resource) stream)
   (print-unreadable-object (obj stream :type t)
     (with-slots (clients client-class) obj
-        (format stream "(~a connected clients of class ~a)"
-                (length clients)
-                client-class))))
+      (format stream "(~a connected clients of class ~a)"
+              (length clients)
+              client-class))))
 
 (defgeneric text-message-received (resource client message))
 
@@ -104,9 +113,33 @@
   (send-frame client +binary-frame+
               message))
 
+(defun send-message (client message &key (opcode +text-frame+))
+  "As above, but check for extensions on client and apply any
+processing they require"
+  (flet ((apply-extension-fns (generic datum)
+           (reduce (lambda (result extn)
+                     (funcall generic extn result))
+                   (client-extension-instances client)
+                   :initial-value datum)))
+
+    (let* ((message-bytes (if (= opcode +text-frame+)
+                              (flexi-streams:string-to-octets message :external-format :utf-8)
+                              message))
+           (frame (make-instance 'frame
+                                 :opcode opcode
+                                 :finp t
+                                 :data (apply-extension-fns #'process-send-message message-bytes))))
+
+      (with-slots (write-lock output-stream) client
+        (with-lock-held (write-lock)
+          (write-sequence
+           (build-frame (apply-extension-fns #'process-send-frames frame))
+           output-stream)
+          (finish-output output-stream))))))
+
 (defun close-connection (client &key (data nil data-supplied-p)
-                                     (status 1000)
-                                     (reason "Normal close"))
+                                  (status 1000)
+                                  (reason "Normal close"))
   (send-frame client
               +connection-close+
               (if data-supplied-p
@@ -180,9 +213,10 @@ format control and arguments."
       (client-disconnected resource client))))
 
 (defmacro with-new-client-for-resource ((client-sym &key input-stream
-                                                      output-stream
-                                                      resource
-                                                      request)
+                                                    output-stream
+                                                    resource
+                                                    request
+                                                    extension-instances)
                                         &body body)
   (alexandria:once-only (resource request)
     `(let ((,client-sym (apply #'make-instance
@@ -191,9 +225,10 @@ format control and arguments."
                                'output-stream ,output-stream
                                'request ,request
                                :request ,request
+                               :extension-instances ,extension-instances
                                (loop for (header . value)
-                                       in (headers-in ,request)
-                                     collect header collect value))))
+                                  in (headers-in ,request)
+                                  collect header collect value))))
        (call-with-new-client-for-resource ,client-sym
                                           ,resource
                                           #'(lambda () ,@body)))))
@@ -208,7 +243,7 @@ format control and arguments."
 (defun read-unsigned-big-endian (stream n)
   "Read N bytes from stream and return the big-endian number"
   (loop for i from (1- n) downto 0
-        sum (* (read-byte stream) (expt 256 i))))
+     sum (* (read-byte stream) (expt 256 i))))
 
 (defun read-n-bytes-into-sequence (stream n)
   "Return an array of N bytes read from stream"
@@ -220,10 +255,12 @@ format control and arguments."
 
 (defclass frame ()
   ((opcode          :initarg :opcode :accessor frame-opcode)
-   (data                             :accessor frame-data)
+   (data            :initarg :data   :accessor frame-data)
    (finp            :initarg :finp)
    (payload-length  :initarg :payload-length :accessor frame-payload-length)
-   (masking-key     :initarg :masking-key)))
+   (masking-key     :initarg :masking-key)
+   (extension-data  :initarg :extension-data
+                    :initform #x00 :accessor frame-extension-data)))
 
 (defun read-frame (stream &key read-payload-p)
   (let* ((first-byte       (read-byte stream))
@@ -240,21 +277,17 @@ format control and arguments."
                                    stream (case payload-length
                                             (126 2)
                                             (127 8))))))
-         (masking-key      (if mask-p (read-n-bytes-into-sequence stream 4)))
-         (extension-data   nil))
-    (declare (ignore extension-data))
+         (masking-key      (if mask-p (read-n-bytes-into-sequence stream 4))))
     (when (and (control-frame-p opcode)
                (> payload-length 125))
       (websocket-error
        1002 "Control frame is too large" extensions))
-    (when (plusp extensions)
-      (websocket-error
-       1002 "No extensions negotiated, but client sends ~a!" extensions))
     (let ((frame
-            (make-instance 'frame :opcode opcode
-                                  :finp (plusp fin)
-                                  :masking-key masking-key
-                                  :payload-length payload-length)))
+           (make-instance 'frame :opcode opcode
+                          :finp (plusp fin)
+                          :masking-key masking-key
+                          :payload-length payload-length
+                          :extension-data extensions)))
       (when (or (control-frame-p opcode)
                 read-payload-p)
         (read-application-data stream frame))
@@ -274,10 +307,10 @@ format control and arguments."
   ;; with octet at index i modulo 4 of the masking
   ;; key ("masking-key-octet-j"):
   (loop for i from 0 below (length data)
-        do (setf (aref data i)
-                 (logxor (aref data i)
-                         (aref masking-key
-                               (mod i 4)))))
+     do (setf (aref data i)
+              (logxor (aref data i)
+                      (aref masking-key
+                            (mod i 4)))))
   data)
 
 (defun read-application-data (stream frame)
@@ -287,7 +320,7 @@ format control and arguments."
     (when masking-key
       (mask-unmask data masking-key))))
 
-(defun write-frame (stream opcode &optional data)
+(defun write-frame (stream opcode &optional data (extension-bits #x00))
   (let* ((first-byte     #x00)
          (second-byte    #x00)
          (len            (if data (length data) 0))
@@ -296,7 +329,7 @@ format control and arguments."
                                (t                   127)))
          (mask-p         nil))
     (setf (ldb (byte 1 7) first-byte)  1
-          (ldb (byte 3 4) first-byte)  0
+          (ldb (byte 3 4) first-byte)  extension-bits
           (ldb (byte 4 0) first-byte)  opcode
           (ldb (byte 1 7) second-byte) (if mask-p 1 0)
           (ldb (byte 7 0) second-byte) payload-length)
@@ -305,13 +338,14 @@ format control and arguments."
     (loop for i from  (1- (cond ((= payload-length 126) 2)
                                 ((= payload-length 127) 8)
                                 (t                      0)))
-          downto 0
-          for out = (ash len (- (* 8 i)))
-          do (write-byte (logand out #xff) stream))
+       downto 0
+       for out = (ash len (- (* 8 i)))
+       do (write-byte (logand out #xff) stream))
     ;; (if mask-p
     ;;     (error "sending masked messages not implemented yet"))
     (if data (write-sequence data stream))
     (force-output stream)))
+
 
 
 ;;; State machine and main websocket loop
@@ -383,9 +417,16 @@ format control and arguments."
               (maybe-accept-data-frame)
               (unless pending-opcode
                 (setq pending-opcode opcode))
-              (let ((ordered-frames
-                      (reverse (cons frame pending-fragments))))
-                (cond ((eq +text-frame+ pending-opcode)
+              (let ((ordered-frames (reverse (cons frame pending-fragments))))
+                (cond
+                  ((client-extension-instances client)
+                   ;; If there are extension instances on client, let these
+                   ;; take over processing.
+                   (reduce (lambda (result extn)
+                             (process-receive-frames extn result))
+                           (client-extension-instances client)
+                           :initial-value ordered-frames))
+                  ((eq +text-frame+ pending-opcode)
                        ;; A text message was received
                        ;;
                        (text-message-received
@@ -399,11 +440,11 @@ format control and arguments."
                        ;; A binary message was received
                        ;;
                        (let ((temp-file
-                               (fad:with-output-to-temporary-file
-                                   (fstream :element-type '(unsigned-byte 8))
-                                 (loop for fragment in ordered-frames
-                                       do (write-sequence (frame-data frame)
-                                                          fstream)))))
+                              (fad:with-output-to-temporary-file
+                                  (fstream :element-type '(unsigned-byte 8))
+                                (loop for fragment in ordered-frames
+                                   do (write-sequence (frame-data frame)
+                                                      fstream)))))
                          (unwind-protect
                               (binary-message-received resource client
                                                        temp-file)
@@ -428,8 +469,8 @@ format control and arguments."
              (t
               (websocket-error
                1002 "Client sent unknown opcode ~a" opcode)))))))))
-
-
+  
+  
 (defun read-handle-loop (resource client
                          &optional (version :rfc-6455))
   "Implements the main WebSocket loop for supported protocol
@@ -438,28 +479,28 @@ payloads."
   (ecase version
     (:rfc-6455
      (handler-bind ((websocket-error
-                      #'(lambda (error)
-                          (with-slots (status format-control format-arguments)
-                              error
-                            (close-connection
-                             client
-                             :status status
-                             :reason (princ-to-string error)))))
+                     #'(lambda (error)
+                         (with-slots (status format-control format-arguments)
+                             error
+                           (close-connection
+                            client
+                            :status status
+                            :reason (princ-to-string error)))))
                     (flexi-streams:external-format-error
-                      #'(lambda (e)
-                          (declare (ignore e))
-                          (close-connection client :status 1007
-                                                   :reason "Bad UTF-8")))
+                     #'(lambda (e)
+                         (declare (ignore e))
+                         (close-connection client :status 1007
+                                           :reason "Bad UTF-8")))
                     (error
-                      #'(lambda (e)
-                          (declare (ignore e))
-                          (close-connection client :status 1011
-                                                   :reason "Internal error"))))
+                     #'(lambda (e)
+                         (declare (ignore e))
+                         (close-connection client :status 1011
+                                           :reason "Internal error"))))
        (with-slots (state) client
          (loop do (handle-frame resource
                                 client
                                 (read-frame-from-client client))
-               while (not (eq :closed state))))))))
+            while (not (eq :closed state))))))))
 
 
 ;;; Hook onto normal Hunchentoot processing
@@ -492,7 +533,10 @@ payloads."
 (defmethod process-request :after ((request websocket-request))
   "After HTTP processing REQUEST, maybe hijack into WebSocket loop."
   ;; HACK! ask upstream Hunchentoot for this.
-  (let ((stream (hunchentoot::content-stream request)))
+  (let ((stream (hunchentoot::content-stream request))
+        ;; If this acceptor was defined with any extensions, create instances
+        ;; of their classes so they can be passed to the client
+        (extension-instances (initialize-extensions (request-acceptor request))))
     (when (= +http-switching-protocols+ (return-code*))
       (force-output stream)
       (let* ((timeout (websocket-timeout (request-acceptor request)))
@@ -500,7 +544,8 @@ payloads."
         (with-new-client-for-resource (client :input-stream stream
                                               :output-stream stream
                                               :resource resource
-                                              :request request)
+                                              :request request
+                                              :extension-instances extension-instances)
           ;; See https://github.com/joaotavora/hunchensocket/pull/23
           ;; LispWorks in Hunchentoot passes around a USOCKET:USOCKET
           ;; handle, not an actual such object. Unfortunately, abusing
@@ -519,6 +564,7 @@ payloads."
                                       (throw 'websocket-done nil))))
               (read-handle-loop resource client))))))))
 
+
 (defmethod handle-handshake ((acceptor websocket-acceptor) request reply)
   "Analyse REQUEST for WebSocket handshake.
 
@@ -528,14 +574,14 @@ non-locally with an error instead."
   (let ((requested-version (header-in* :sec-websocket-version request)))
     (cond ((not (equal "13" requested-version))
            (websocket-error 1002
-            "Unsupported websocket version ~a" requested-version))
+                            "Unsupported websocket version ~a" requested-version))
           ((header-in :sec-websocket-draft request)
            (websocket-error 1002
-            "Websocket draft is unsupported"))
+                            "Websocket draft is unsupported"))
           ((header-in :sec-websocket-key request)
            (let ((sec-websocket-key+magic
-                   (concatenate 'string (header-in :sec-websocket-key request)
-                                "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")))
+                  (concatenate 'string (header-in :sec-websocket-key request)
+                               "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")))
              (setf (header-out :sec-websocket-accept reply)
                    (base64:usb8-array-to-base64-string
                     (ironclad:digest-sequence
@@ -550,10 +596,12 @@ non-locally with an error instead."
              (setf (header-out :sec-websocket-protocol reply)
                    (first (split "\\s*,\\s*" (header-in :sec-websocket-protocol
                                                         request))))
-             ;; A (possibly empty) list representing the
-             ;; protocol-level extensions the server is ready to use.
-             ;;
-             (setf (header-out :sec-websocket-extensions reply) nil)
+             
+             ;; Get the list of extension headers for each extension specified
+             ;; for this acceptor and add them to the header
+             (setf (header-out :sec-websocket-extensions reply)
+                   (format-extension-headers acceptor))
+             
              (setf (return-code* reply) +http-switching-protocols+
                    (header-out :upgrade reply) "WebSocket"
                    (header-out :connection reply) "Upgrade"
