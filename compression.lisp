@@ -5,7 +5,7 @@
                     :initform (error "Must specify one of (:inflate :deflate)")
                     :reader persistent-op)
    (compression     :initarg :compression
-                    :initform zlib-ffi::+z-default-compression+)
+                    :initform +z-default-compression+)
    (suppress-header :initarg :suppress-header
                     :initform t)
    (gzip-format     :initarg :gzip-format

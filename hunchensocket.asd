@@ -19,8 +19,8 @@
   :serial t
   :components
   ((:file "package")
-   (:file "hunchensocket")
    (:file "compression")
+   (:file "hunchensocket")
    (:file "extensions")))
 
 (asdf:defsystem :hunchensocket-tests

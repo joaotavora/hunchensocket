@@ -259,7 +259,8 @@ format control and arguments."
    (finp            :initarg :finp)
    (payload-length  :initarg :payload-length :accessor frame-payload-length)
    (masking-key     :initarg :masking-key)
-   (extension-data  :initarg :extension-data :accessor frame-extension-data)))
+   (extension-data  :initarg :extension-data
+                    :initform #x00 :accessor frame-extension-data)))
 
 (defun read-frame (stream &key read-payload-p)
   (let* ((first-byte       (read-byte stream))
