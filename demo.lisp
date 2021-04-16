@@ -50,9 +50,7 @@
 
 (defvar *server* (make-instance 'hunchensocket:websocket-acceptor :port 12345))
 
-(unless (hunchentoot::acceptor-listen-socket acceptor) ; should be
-                                                       ; hunchentoot:listening-p
-                                                       ; if it existed
+(unless (hunchensocket:listening-p *server*)
   (hunchentoot:start *server*))
 
 ;; Now open two browser windows on http://www.websocket.org/echo.html,
