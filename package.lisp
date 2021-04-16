@@ -6,9 +6,13 @@
   (:import-from :trivial-backtrace :print-backtrace)
   (:import-from :hunchentoot :log-message*)
   (:export
+   #:listening-p
+
    ;; acceptor classes
    #:websocket-acceptor
    #:websocket-ssl-acceptor
+   #:websocket-easy-acceptor
+   #:websocket-ssl-easy-acceptor
 
    ;; dispatch table
    #:*websocket-dispatch-table*

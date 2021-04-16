@@ -15,6 +15,9 @@
 (defun control-frame-p (opcode)
   (plusp (logand #x8 opcode)))
 
+(defun listening-p (x)
+  (hunchentoot::acceptor-listen-socket x))
+
 (defvar *websocket-socket* nil
   "The currently active WebSocket socket")
 
@@ -34,6 +37,12 @@
 
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
   (:documentation "Special WebSocket SSL acceptor"))
+
+(defclass websocket-easy-acceptor (websocket-acceptor easy-acceptor) ()
+  (:documentation "Special WebSocket easy acceptor"))
+
+(defclass websocket-ssl-easy-acceptor (websocket-easy-acceptor ssl-easy-acceptor) ()
+  (:documentation "Special WebSocket SSL easy acceptor"))
 
 (defclass websocket-client ()
   ((input-stream     :initarg input-stream
