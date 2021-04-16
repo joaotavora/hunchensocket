@@ -18,7 +18,7 @@
    (:file "hunchensocket")))
 
 (asdf:defsystem :hunchensocket-tests
-    :description "Tests for Hunchensoket"
+  :description "Tests for Hunchensocket"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:fiasco
                :hunchensocket)
