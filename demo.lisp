@@ -4,13 +4,11 @@
 ;; First define classes for rooms and users. Make these subclasses of
 ;; `websocket-resource` and `websocket-client`.
 
-(defvar *package-list* '(:hunchensocket :hunchentoot :cl-who :parenscript))
+(defpackage :my-chat (:use :cl))
+(in-package :my-chat)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (ql:quickload *package-list*))
-
-(defpackage :my-chat #.(append '(:use :cl) *package-list*)
-(in-package :my-chat)
+  (ql:quickload :hunchensocket))
 
 (defclass chat-room (hunchensocket:websocket-resource)
   ((name :initarg :name :initform (error "Name this room!") :reader name))
