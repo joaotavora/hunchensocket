@@ -44,13 +44,23 @@
 (defmethod hunchensocket:text-message-received ((room chat-room) user message)
   (broadcast room "~a says ~a" (name user) message))  
 
+;; Let's serve a client off of `/` using a `hunchentoot:easy-handler`
+
+(hunchentoot:define-easy-handler (index :uri "/") () "\
+ <script>
+     var ws = new WebSocket('ws' + location.origin.substr(4) + '/fury');
+     ws.onopen    = function(e){ ws.send('Hello!') }
+     ws.onmessage = function(e){ alert(e.data) }
+ </script>
+ ")
+
 ;; Finally, start the server. `hunchensocket:websocket-acceptor` works
 ;; just like `hunchentoot:acceptor`, and you can probably also use
 ;; `hunchensocket:websocket-ssl-acceptor`.
 
-(defvar *server* (make-instance 'hunchensocket:websocket-acceptor :port 12345))
+(defvar *server* (make-instance 'hunchensocket:websocket-easy-acceptor :port 12345))
 
-(unless (hunchentoot::acceptor-listen-socket acceptor) ; should be
+(unless (hunchentoot::acceptor-listen-socket *server*) ; should be
                                                        ; hunchentoot:listening-p
                                                        ; if it existed
   (hunchentoot:start *server*))

@@ -9,6 +9,8 @@
    ;; acceptor classes
    #:websocket-acceptor
    #:websocket-ssl-acceptor
+   #:websocket-easy-acceptor
+   #:websocket-easy-ssl-acceptor
 
    ;; dispatch table
    #:*websocket-dispatch-table*
