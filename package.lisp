@@ -24,19 +24,16 @@
 
    ;; resource accessors
    #:clients
-   
+
    ;; status updates
    ;;
    #:client-connected
    #:client-disconnected
-   
+
    ;; receiving and sending messages
-   ;; 
+   ;;
    #:binary-message-received
    #:text-message-received
+   #:send-ping
    #:send-text-message
    #:send-binary-message))
-
-
-
-
