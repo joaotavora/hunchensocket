@@ -88,7 +88,7 @@ just like `hunchentoot:acceptor`, and you can probably also use
 (hunchentoot:start *server*)
 ```
 
-Now open two browser windows on http://www.websocket.org/echo.html,
+Now open two browser windows on https://www.piesocket.com/websocket-tester
 enter `ws://localhost:12345/bongo` as the host and play around chatting with
 yourself.
 
