@@ -537,11 +537,8 @@ non-locally with an error instead."
                    (concatenate 'string (header-in :sec-websocket-key request)
                                 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")))
              (setf (header-out :sec-websocket-accept reply)
-                   (base64:usb8-array-to-base64-string
-                    (ironclad:digest-sequence
-                     'ironclad:sha1
-                     (ironclad:ascii-string-to-byte-array
-                      sec-websocket-key+magic))))
+                   (sha1:sha1-base64 sec-websocket-key+magic
+                                     #'base64:string-to-base64-string))
              (setf (header-out :sec-websocket-origin reply)
                    (header-in :origin request))
              (setf (header-out :sec-websocket-location reply)

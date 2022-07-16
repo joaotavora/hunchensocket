@@ -1,7 +1,6 @@
 (cl:defpackage :hunchensocket
   (:use :cl :alexandria :hunchentoot :cl-ppcre :alexandria
    :flexi-streams :trivial-utf-8 :bordeaux-threads)
-  (:import-from :ironclad :digest-sequence)
   (:import-from :chunga :read-char*)
   (:import-from :trivial-backtrace :print-backtrace)
   (:import-from :hunchentoot :log-message*)

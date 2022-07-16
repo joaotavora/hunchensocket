@@ -5,7 +5,8 @@
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:hunchentoot
                :alexandria
-               :ironclad
+               :base64
+               :sha1
                :flexi-streams
                :chunga
                :trivial-utf-8
