@@ -35,6 +35,12 @@
 (defclass websocket-ssl-acceptor (websocket-acceptor ssl-acceptor) ()
   (:documentation "Special WebSocket SSL acceptor"))
 
+(defclass websocket-easy-acceptor (websocket-acceptor easy-acceptor) ()
+  (:documentation "Special WebSocket easy acceptor"))
+
+(defclass websocket-easy-ssl-acceptor (websocket-easy-acceptor websocket-ssl-acceptor) ()
+  (:documentation "Special WebSocket easy SSL acceptor"))
+
 (defclass websocket-client ()
   ((input-stream     :initarg input-stream
                      :initform (error "Must make clients with input streams"))
