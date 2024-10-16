@@ -398,16 +398,10 @@ format control and arguments."
                       ((eq +binary-frame+ pending-opcode)
                        ;; A binary message was received
                        ;;
-                       (let ((temp-file
-                               (fad:with-output-to-temporary-file
-                                   (fstream :element-type '(unsigned-byte 8))
-                                 (loop for fragment in ordered-frames
-                                       do (write-sequence (frame-data frame)
-                                                          fstream)))))
-                         (unwind-protect
-                              (binary-message-received resource client
-                                                       temp-file)
-                           (delete-file temp-file))))
+                       (binary-message-received resource client
+                                                (flex:with-output-to-sequence (s)
+                                                  (dolist (frame ordered-frames)
+                                                    (write-sequence (frame-data frame) s)))))
                       (t
                        (websocket-error
                         1002 "Client sent unknown opcode ~a" opcode))))
@@ -439,11 +433,11 @@ payloads."
     (:rfc-6455
      (handler-bind ((websocket-error
                       #'(lambda (error)
-                          (with-slots (status format-control format-arguments)
+                          (with-slots (error-status format-control format-arguments)
                               error
                             (close-connection
                              client
-                             :status status
+                             :status error-status
                              :reason (princ-to-string error)))))
                     (flexi-streams:external-format-error
                       #'(lambda (e)
