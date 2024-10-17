@@ -104,6 +104,9 @@
   (send-frame client +binary-frame+
               message))
 
+(defun send-ping (client &optional (message #()))
+  (send-frame client +ping+ message))
+
 (defun close-connection (client &key (data nil data-supplied-p)
                                      (status 1000)
                                      (reason "Normal close"))
@@ -505,7 +508,7 @@ payloads."
           #+lispworks
           (setf (stream:stream-read-timeout stream) timeout
                 (stream:stream-write-timeout stream) timeout)
-          
+
           (catch 'websocket-done
             (handler-bind ((error #'(lambda (e)
                                       (maybe-invoke-debugger e)
