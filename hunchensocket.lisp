@@ -18,6 +18,11 @@
 (defun control-frame-p (opcode)
   (plusp (logand #x8 opcode)))
 
+;; should be `hunchentoot:listening-p` if it existed
+(defun listening-p (acceptor)
+  "Return non-nil if server ACCEPTOR in listening state."
+  (hunchentoot::acceptor-listen-socket acceptor))
+
 (defvar *websocket-socket* nil
   "The currently active WebSocket socket")
 

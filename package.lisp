@@ -30,7 +30,8 @@
    ;;
    #:client-connected
    #:client-disconnected
-
+   #:listening-p
+   
    ;; receiving and sending messages
    ;;
    #:binary-message-received
