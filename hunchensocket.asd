@@ -5,7 +5,8 @@
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:hunchentoot
                :alexandria
-               :ironclad
+               :cl-base64
+               :sha1
                :flexi-streams
                :chunga
                :trivial-utf-8
@@ -18,7 +19,7 @@
    (:file "hunchensocket")))
 
 (asdf:defsystem :hunchensocket-tests
-    :description "Tests for Hunchensoket"
+  :description "Tests for Hunchensocket"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :depends-on (:fiasco
                :hunchensocket)
