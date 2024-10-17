@@ -105,7 +105,6 @@
 
 (defun send-binary-message (client message)
   "Send MESSAGE, an array of octets, to CLIENT"
-  (check-type message (vector (integer)))
   (send-frame client +binary-frame+
               (coerce message '(vector (unsigned-byte 8)))))
 
