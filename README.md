@@ -109,6 +109,75 @@ Main sources of inspiration:
 * [clws][clws]'s API because it explicitly defines websocket "resources"
 * [Hunchentoot's][Hunchentoot]'s API because it uses CLOS
 
+Contributing
+------------
+
+* Propose patches using GitHub's pull request feature, as usual.  You
+  may ping the maintainers if you don't get some kind of feedback
+  after a week or so.
+
+* When composing a PR, it's OK to include nonessential
+  cleanup/housekeeping changes like fixing the odd bug, typo, or
+  indentation mishap.  But please segregate these changes into their
+  own separate commit.  You may freely `git rebase --interactice` and
+  `git push -f` to rewrite your PR if needed.
+
+* Each commit's message should strictly follow the GNU ChangeLog
+  format described [here][gnu-changelog].  It's what the Emacs project
+  uses.  There's a short subject line in the imperative form, followed
+  optionally by longer explanatory text, all formatted to less than 70
+  columns.  A bit like a nice text email from the twentieth century.
+  In the end there are entries for each file and
+  function/macro/top-level entity changed within it, along with very
+  brief descriptions of the change.  You can use `C-x 4 a` in Emacs to
+  help you generate these, if you want.
+
+  Here are some examples:
+
+```
+Closes #12: Avoid bordeaux-threads bug when nullifying locks
+
+Elias Mårtenson noticed that its default implementation, the
+BT:WITH-LOCK-HELD macro evaluates its argument twice and thus
+nullifying that slot while holding it is not only unnecessary, but
+problematic.
+
+See https://github.com/joaotavora/hunchensocket/pull/12.
+
+This fix is conceptually cleaner than the one proposed there.
+
+* hunchensocket.lisp (call-with-new-client-for-resource): Don't
+  nullify client's WRITE-LOCK while locking it.
+```
+
+```
+Fix many bugs and add automatic tests for robustness.
+
+* hunchensocket-tests.lisp: New file.
+
+* hunchensocket.asd (:hunchensocket-tests): New system.
+(:hunchensocket): Depends on cl-fad.
+
+* hunchensocket.lisp (control-frame-p): New function.
+(websocket-client): Separate input and output stream slots. State
+goes in client.
+(check-message): Receive fragment and total length.
+(send-text-message): Use SEND-FRAME.
+(close-connection, send-frame): New functions.
+(websocket-error): Add error status reader.
+(with-new-client-for-resource): Adapt to separate stream slots.
+(read-unsigned-big-endian): Fix big bug. Was reading little-endian!
+(read-frame): Optionally read payload. Error out when control
+frame is too large.
+(read-frame-from-client): New function.
+(mask-unmask): New function.
+(read-application-data): New function.
+(handle-frame): Rework completely. Bigger but slightly easier to
+read.
+(read-handle-loop): Simplify.
+(process-request): Use new WITH-NEW-CLIENT-FOR-RESOURCE.
+```
+
 
 [WebSocket]: http://en.wikipedia.org/wiki/WebSocket  
 [edi]: http://weitz.de/
@@ -118,3 +187,4 @@ Main sources of inspiration:
 [copying]: https://github.com/joaotavora/hunchensocket/blob/master/COPYING
 [Hunchentoot]: http://weitz.de/hunchentoot/
 [Quicklisp]: http://www.quicklisp.org/  
+[gnu-changelog]: https://www.gnu.org/prep/standards/html_node/Style-of-Change-Logs.html
