@@ -1,5 +1,8 @@
 (in-package :hunchensocket)
 
+(defparameter *websocket-maximum-fragment-size* #xffff) ;64KiB
+(defparameter *websocket-maximum-message-size* #xfffff) ;1 MiB
+
 (define-constant +websocket-magic-key+
   "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   :test #'string=
@@ -43,7 +46,7 @@
    (request    :initarg request
                :reader client-request
                :initform (error "Must make clients with requests"))
-   (write-lock :initform (make-lock))
+   (write-lock :initform (make-lock "websocket client write lock"))
    (state      :initform :disconnected)
    (pending-fragments :initform nil)
    (pending-opcode    :initform nil)))
@@ -55,7 +58,7 @@
 (defclass websocket-resource ()
   ((clients :initform nil :reader clients)
    (client-class :initarg :client-class :initform 'websocket-client)
-   (lock :initform (make-lock))))
+   (lock :initform (make-lock "websocket-resource"))))
 
 (defmethod print-object ((obj websocket-resource) stream)
   (print-unreadable-object (obj stream :type t)
@@ -82,9 +85,9 @@
   (:method ((resource websocket-resource)
             (client websocket-client) opcode length total)
     (declare (ignore resource client))
-    (cond ((> length #xffff) ; 65KiB
+    (cond ((> length *websocket-maximum-fragment-size*)
            (websocket-error 1009 "Message fragment too big"))
-          ((> total #xfffff) ; 1 MiB
+          ((> total *websocket-maximum-message-size*)
            (websocket-error 1009 "Total message too big"))))
   (:method ((resource websocket-resource)
             (client websocket-client)
@@ -170,6 +173,8 @@ format control and arguments."
   (with-slots (clients lock) resource
     (unwind-protect
          (progn
+           #+sbcl(sb-ext:atomic-push client clients)
+           #-sbcl
            (bt:with-lock-held (lock)
              (push client clients))
            (setf (slot-value client 'state) :connected)
