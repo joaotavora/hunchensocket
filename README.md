@@ -1,4 +1,5 @@
-[![Build Status](https://travis-ci.org/joaotavora/hunchensocket.svg?branch=master)](https://travis-ci.org/joaotavora/hunchensocket)
+![build and test](https://github.com/joaotavora/hunchensocket/actions/workflows/build-and-test.yml/badge.svg)
+
 Hunchensocket - WebSockets for Hunchentoot
 ==========================================
 

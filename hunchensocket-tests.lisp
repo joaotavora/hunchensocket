@@ -83,21 +83,13 @@
       (push message received-messages))))
 
 (defmethod binary-message-received ((resource mock-resource)
-                                    (client mock-client) file)
+                                    (client mock-client) data)
   (is *expected-files*
       "Didn't expect a binary file at all but got one")
   (when *expected-files*
-    (let ((file-contents
-            (with-open-file (fstream file :direction :input
-                                          :element-type '(unsigned-byte 8))
-              (let ((seq (make-array (file-length fstream)
-                                     :element-type '(unsigned-byte 8)
-                                     :fill-pointer t)))
-                (setf (fill-pointer seq) (read-sequence seq fstream))
-                seq))))
-      (is (equalp (pop *expected-files*) file-contents))
-      (with-slots (received-files) client
-        (push file-contents received-files)))))
+    (is (equalp (pop *expected-files*) data))
+    (with-slots (received-files) client
+      (push data received-files))))
 
 (defmacro with-resource-and-client ((res-sym client-sym)
                                     (mock-input mock-output) &body body)
@@ -221,16 +213,3 @@
       (let ((*max-total-size* 2048)
             (*max-fragment-size* 128))
         (test-fragmented-binaries #x02 #x00 #x00 #x80)))))
-
-
-
-
-
-
-  
-  
-
-
-
-
-

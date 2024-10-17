@@ -1,0 +1,36 @@
+name: 'Build and Test'
+on:
+  - workflow_dispatch
+  - push
+
+jobs:
+  install-quicklisp:
+    strategy:
+      matrix:
+        implementation: ['sbcl']
+        os: ['ubuntu-latest', 'macos-latest']
+    runs-on: '${{ matrix.os }}'
+    name: 'Install Common Lisp'
+    steps:
+      - uses: actions/checkout@v3
+      - name: 'Install MacPorts'
+        if: runner.os == 'macOS'
+        uses: melusina-org/setup-macports@v1
+
+      - uses: melusina-org/setup-common-lisp@v1
+        with:
+          implementation: '${{ matrix.implementation }}'
+
+      - uses: melusina-org/setup-quicklisp@v1
+        id: 'quicklisp'
+        with:
+          implementation: '${{ matrix.implementation }}'
+
+      - name: 'Validate installed implementation'
+        run: |
+          test -d '${{ steps.quicklisp.outputs.quicklisp-home }}'
+          test -d '${{ steps.quicklisp.outputs.quicklisp-local-projects }}'
+
+      - name: 'Run tests'
+        run: |
+          sbcl --load run-tests.lisp
